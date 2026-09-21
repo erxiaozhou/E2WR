@@ -1,0 +1,799 @@
+{
+    "valtype": [
+        {
+            "name": "numtype",
+            "type": "<Union:numtype:vectype:reftype>",
+            "description": "A value type that can be a number type, vector type, or reference type."
+        }
+    ],
+    "numtype": [
+        {
+            "name": "value",
+            "type": "<Union:i32_tyrepr:i64_tyrepr:f32_tyrepr:f64_tyrepr>",
+            "description": "A single byte that determines the type of the numtype. Can be one of four possible types: 'i32', 'i64', 'f32', and 'f64'"
+        }
+    ],
+    "vectype": [
+        {
+            "name": "vectype_byte",
+            "type": "v128_tyrepr",
+            "description": "The byte representation of the vectype, which is fixed at 0x7B, corresponding to the vector type v128."
+        }
+    ],
+    "reftype": [
+        {
+            "name": "reftype_variant",
+            "type": "<Union:funcref_tyrepr:externref_tyrepr>",
+            "description": "A single byte that can be either funcref or externref, representing different types of references."
+        }
+    ],
+    "limits": [
+        {
+            "name": "limits_variant",
+            "type": "<Union:limits_without_max:limits_with_max>",
+            "description": "The limits can be one of two variants. The first variant 'limits_without_max' represents a limit with only a minimum value. The second variant 'limits_with_max' represents a limit with both minimum and maximum values."
+        }
+    ],
+    "limits_without_max": [
+        {
+            "name": "flag",
+            "type": "<Fix:00:hex>",
+            "description": "A flag indicating that there is no maximum limit. The flag is fixed at 0x00."
+        },
+        {
+            "name": "min",
+            "type": "u32",
+            "description": "The minimum limit."
+        }
+    ],
+    "limits_with_max": [
+        {
+            "name": "flag",
+            "type": "<Fix:01:hex>",
+            "description": "A flag indicating that there is a maximum limit. The flag is fixed at 0x01."
+        },
+        {
+            "name": "min",
+            "type": "u32",
+            "description": "The minimum limit."
+        },
+        {
+            "name": "max",
+            "type": "u32",
+            "description": "The maximum limit."
+        }
+    ],
+    "global_section": [
+        {
+            "name": "section_id",
+            "type": "<Fix:6:hex>",
+            "description": "The ID of the global section, which is fixed at 0x06."
+        },
+        {
+            "name": "globals",
+            "type": "<Vec:global>",
+            "description": "A vector of global variables that represent the globals component of a module."
+        }
+    ],
+    "global": [
+        {
+            "name": "gt",
+            "type": "globaltype",
+            "description": "The type and mutability of the global variable."
+        },
+        {
+            "name": "e",
+            "type": "expr",
+            "description": "The initial value of the global variable."
+        }
+    ],
+    "start_section": [
+        {
+            "name": "section_id",
+            "type": "<Fix:8:hex>",
+            "description": "The ID of the start section, which is fixed at 0x08."
+        },
+        {
+            "name": "start_function",
+            "type": "<Optional:start>",
+            "description": "An optional start function that represents the start component of a module."
+        }
+    ],
+    "start": [
+        {
+            "name": "funcidx",
+            "type": "u32",
+            "description": "A function index that is used to reference the function in the module."
+        }
+    ],
+    "tabletype": [
+        {
+            "name": "et",
+            "type": "reftype",
+            "description": "The element reference type of the table."
+        },
+        {
+            "name": "lim",
+            "type": "limits",
+            "description": "The limits of the table."
+        }
+    ],
+    "function_section": [
+        {
+            "name": "section_id",
+            "type": "<Fix:3:hex>",
+            "description": "The ID of the function section, which is fixed at 0x03."
+        },
+        {
+            "name": "section_content",
+            "type": "<Vec:typeidx>",
+            "description": "A vector of type indices that represent the type fields of the functions in the funcs component of a module."
+        }
+    ],
+    "ref.null t": [
+        {
+            "name": "opcode",
+            "type": "<Fix:D0:hex>",
+            "description": "The opcode for the 'ref.null t' instruction, which is fixed at 0xD0."
+        },
+        {
+            "name": "t",
+            "type": "reftype",
+            "description": "The reference type for the null reference."
+        }
+    ],
+    "ref.is_null": [
+        {
+            "name": "opcode",
+            "type": "<Fix:D1:hex>",
+            "description": "The opcode for the 'ref.is_null' instruction, which is fixed at 0xD1."
+        }
+    ],
+    "ref.func x": [
+        {
+            "name": "opcode",
+            "type": "<Fix:D2:hex>",
+            "description": "The opcode for the 'ref.func x' instruction, which is fixed at 0xD2."
+        },
+        {
+            "name": "x",
+            "type": "funcidx",
+            "description": "The function index for the function reference."
+        }
+    ],
+    "funcidx": [
+        {
+            "name": "index",
+            "type": "u32",
+            "description": "A u32 value that represents the index of a function in the function indices space of a WebAssembly module."
+        }
+    ],
+    "typesec": [
+        {
+            "name": "section_id",
+            "type": "<Fix:1:hex>",
+            "description": "The ID of the type section, which is fixed at 0x01."
+        },
+        {
+            "name": "ft*",
+            "type": "<Vec:functype>",
+            "description": "A vector of function types that represent the types component of a module."
+        }
+    ],
+    "functype": [
+        {
+            "name": "prefix",
+            "type": "<Fix:60:hex>",
+            "description": "A function type, identified by the byte 0x60."
+        },
+        {
+            "name": "param",
+            "type": "<Vec:valtype>",
+            "description": "A vector of value types that represent the parameter types of the function."
+        },
+        {
+            "name": "result",
+            "type": "<Vec:valtype>",
+            "description": "A vector of value types that represent the return types of the function."
+        }
+    ],
+    "memidx": [
+        {
+            "name": "memidx",
+            "type": "u32",
+            "description": "A memory index, used to reference a specific memory instance in the WebAssembly module."
+        }
+    ],
+    "memarg": [
+        {
+            "name": "align",
+            "type": "u32",
+            "description": "An alignment hint for the memory operation."
+        },
+        {
+            "name": "offset",
+            "type": "u32",
+            "description": "An offset for the memory operation."
+        }
+    ],
+    "tablesec": [
+        {
+            "name": "section_id",
+            "type": "<Fix:04:hex>",
+            "description": "The ID of the table section, which is fixed at 0x04."
+        },
+        {
+            "name": "tables",
+            "type": "<Vec:table>",
+            "description": "A vector of tables that represent the tables component of a module."
+        }
+    ],
+    "table": [
+        {
+            "name": "type",
+            "type": "tabletype",
+            "description": "The type of the table."
+        }
+    ],
+    "globalidx": [
+        {
+            "name": "index",
+            "type": "u32",
+            "description": ""
+        }
+    ],
+    "code_section": [
+        {
+            "name": "section_id",
+            "type": "<Fix:0A:hex>",
+            "description": "The ID of the code section, which is fixed at 0xA."
+        },
+        {
+            "name": "code_entries",
+            "type": "<Vec:Func>",
+            "description": "A vector of code entries, each of which is a pair of value type vectors and expressions."
+        }
+    ],
+    "Func": [
+        {
+            "name": "size",
+            "type": "u32",
+            "description": "The size of the function code in bytes."
+        },
+        {
+            "name": "function_code",
+            "type": "func",
+            "description": "The actual function code, which consists of the declaration of locals and the function body as an expression."
+        }
+    ],
+    "func": [
+        {
+            "name": "locals",
+            "type": "<Vec:locals>",
+            "description": "A vector of local declarations."
+        },
+        {
+            "name": "expression",
+            "type": "expr",
+            "description": "The function body as an expression."
+        }
+    ],
+    "locals": [
+        {
+            "name": "count",
+            "type": "u32",
+            "description": "The count of locals of the same value type."
+        },
+        {
+            "name": "value_type",
+            "type": "valtype",
+            "description": "The value type of the locals."
+        }
+    ],
+    "element_section": [
+        {
+            "name": "section_id",
+            "type": "<Fix:9:hex>",
+            "description": "The ID of the element section, which is fixed at 0x09."
+        },
+        {
+            "name": "element_segments",
+            "type": "<Vec:element_segment>",
+            "description": "A vector of element segments that represent the elems component of a module."
+        }
+    ],
+    "element_segment": [
+        {
+            "name": "element_segment",
+            "type": "<Union:active_elem_seg0:passive_elem_seg0:active_elem_seg1:declarative_elem_seg0:active_elem_seg2:passive_elem_seg1:active_elem_seg3:declarative_elem_seg1>",
+            "description": "A union of passive element segment and active element segment."
+        }
+    ],
+    "active_elem_seg0": [
+        {
+            "name": "prefix",
+            "type": "<Fix:0:hex>",
+            "description": "An integer indicating the variant of the element segment. It can be interpreted as a bitfield."
+        },
+        {
+            "name": "offset",
+            "type": "expr",
+            "description": "An expression used in some variants of the element segment."
+        },
+        {
+            "name": "funcidxs",
+            "type": "<Vec:funcidx>",
+            "description": "A vector of function indices used in some variants of the element segment."
+        }
+    ],
+    "passive_elem_seg0": [
+        {
+            "name": "prefix",
+            "type": "<Fix:1:hex>",
+            "description": "An integer indicating the variant of the element segment. It can be interpreted as a bitfield."
+        },
+        {
+            "name": "elemkind",
+            "type": "elemkind",
+            "description": "An expression used in some variants of the element segment."
+        },
+        {
+            "name": "funcidxs",
+            "type": "<Vec:funcidx>",
+            "description": "A vector of function indices used in some variants of the element segment."
+        }
+    ],
+    "active_elem_seg1": [
+        {
+            "name": "prefix",
+            "type": "<Fix:2:hex>",
+            "description": "An integer indicating the variant of the element segment. It can be interpreted as a bitfield."
+        },
+        {
+            "name": "table_idx",
+            "type": "tableidx",
+            "description": ""
+        },
+        {
+            "name": "offset",
+            "type": "expr",
+            "description": "An expression used in some variants of the element segment."
+        },
+        {
+            "name": "elemkind",
+            "type": "elemkind",
+            "description": ""
+        },
+        {
+            "name": "funcidxs",
+            "type": "<Vec:funcidx>",
+            "description": "A vector of function indices used in some variants of the element segment."
+        }
+    ],
+    "declarative_elem_seg0": [
+        {
+            "name": "prefix",
+            "type": "<Fix:3:hex>",
+            "description": "An integer indicating the variant of the element segment. It can be interpreted as a bitfield."
+        },
+        {
+            "name": "elemkind",
+            "type": "elemkind",
+            "description": "An expression used in some variants of the element segment."
+        },
+        {
+            "name": "funcidxs",
+            "type": "<Vec:funcidx>",
+            "description": "A vector of function indices used in some variants of the element segment."
+        }
+    ],
+    "active_elem_seg2": [
+        {
+            "name": "prefix",
+            "type": "<Fix:4:hex>",
+            "description": "An integer indicating the variant of the element segment. It can be interpreted as a bitfield."
+        },
+        {
+            "name": "offset",
+            "type": "expr",
+            "description": "An expression used in some variants of the element segment."
+        },
+        {
+            "name": "exprs",
+            "type": "<Vec:expr>",
+            "description": "A vector of function indices used in some variants of the element segment."
+        }
+    ],
+    "passive_elem_seg1": [
+        {
+            "name": "prefix",
+            "type": "<Fix:5:hex>",
+            "description": "An integer indicating the variant of the element segment. It can be interpreted as a bitfield."
+        },
+        {
+            "name": "elemkind",
+            "type": "reftype",
+            "description": "An expression used in some variants of the element segment."
+        },
+        {
+            "name": "exprs",
+            "type": "<Vec:expr>",
+            "description": "A vector of function indices used in some variants of the element segment."
+        }
+    ],
+    "active_elem_seg3": [
+        {
+            "name": "prefix",
+            "type": "<Fix:6:hex>",
+            "description": "An integer indicating the variant of the element segment. It can be interpreted as a bitfield."
+        },
+        {
+            "name": "tableidx",
+            "type": "tableidx",
+            "description": ""
+        },
+        {
+            "name": "offset",
+            "type": "expr",
+            "description": "An expression used in some variants of the element segment."
+        },
+        {
+            "name": "elemkind",
+            "type": "reftype",
+            "description": ""
+        },
+        {
+            "name": "exprs",
+            "type": "<Vec:expr>",
+            "description": "A vector of function indices used in some variants of the element segment."
+        }
+    ],
+    "declarative_elem_seg1": [
+        {
+            "name": "prefix",
+            "type": "<Fix:7:hex>",
+            "description": "An integer indicating the variant of the element segment. It can be interpreted as a bitfield."
+        },
+        {
+            "name": "elemkind",
+            "type": "reftype",
+            "description": "An expression used in some variants of the element segment."
+        },
+        {
+            "name": "exprs",
+            "type": "<Vec:expr>",
+            "description": "A vector of function indices used in some variants of the element segment."
+        }
+    ],
+    "elemkind": [
+        {
+            "name": "kind",
+            "type": "<Fix:0:hex>",
+            "description": "The kind of the element, which is fixed at 0x00 and represents funcref."
+        }
+    ],
+    "memtype": [
+        {
+            "name": "lim",
+            "type": "limits",
+            "description": "The limits of the memory type."
+        }
+    ],
+    "typeidx": [
+        {
+            "name": "index",
+            "type": "u32",
+            "description": "A variable-length integer that references a type in the type section of a WebAssembly module."
+        }
+    ],
+    "import_section": [
+        {
+            "name": "section_id",
+            "type": "<Fix:2:hex>",
+            "description": "The ID of the import section, which is fixed at 0x02."
+        },
+        {
+            "name": "imports",
+            "type": "<Vec:import>",
+            "description": "A vector of imports that represent the imports component of a module."
+        }
+    ],
+    "import": [
+        {
+            "name": "module",
+            "type": "utf8str",
+            "description": "The name of the module from which the import is made."
+        },
+        {
+            "name": "name",
+            "type": "utf8str",
+            "description": "The name of the import."
+        },
+        {
+            "name": "desc",
+            "type": "<Union:func_importdesc:table_importdesc:mem_importdesc:global_importdesc>",
+            "description": "The description of the import, which can be a function, table, memory, or global."
+        }
+    ],
+    "func_importdesc": [
+        {
+            "name": "func",
+            "type": "<Fix:00:hex>",
+            "description": "A function import, identified by the byte 0x00."
+        },
+        {
+            "name": "typeidx",
+            "type": "typeidx",
+            "description": "The type index of the function import."
+        }
+    ],
+    "table_importdesc": [
+        {
+            "name": "table",
+            "type": "<Fix:01:hex>",
+            "description": "A table import, identified by the byte 0x01."
+        },
+        {
+            "name": "tabletype",
+            "type": "tabletype",
+            "description": "The table type of the table import."
+        }
+    ],
+    "mem_importdesc": [
+        {
+            "name": "mem",
+            "type": "<Fix:02:hex>",
+            "description": "A memory import, identified by the byte 0x02."
+        },
+        {
+            "name": "memtype",
+            "type": "memtype",
+            "description": "The memory type of the memory import."
+        }
+    ],
+    "global_importdesc": [
+        {
+            "name": "global",
+            "type": "<Fix:03:hex>",
+            "description": "A global import, identified by the byte 0x03."
+        },
+        {
+            "name": "globaltype",
+            "type": "globaltype",
+            "description": "The global type of the global import."
+        }
+    ],
+    "data_count_section": [
+        {
+            "name": "section_id",
+            "type": "<Fix:0C:hex>",
+            "description": "The ID of the data count section, which is fixed at 0x0C."
+        },
+        {
+            "name": "section_len",
+            "type": "u32",
+            "description": "The length of the data count section in bytes."
+        },
+        {
+            "name": "n",
+            "type": "<Optional:u32>",
+            "description": "An optional u32 value representing the number of data segments in the data section. If present, it must match the length of the data segment vector; otherwise, the module is malformed."
+        }
+    ],
+    "expr": [
+        {
+            "name": "instructions",
+            "type": "<Vec:instr>",
+            "description": "A sequence of instructions, each represented by 'instr'."
+        },
+        {
+            "name": "end",
+            "type": "<Fix:0B:hex>",
+            "description": "An explicit end opcode, represented by the hexadecimal value '0x0B', that terminates the sequence of instructions."
+        }
+    ],
+    "memory_section": [
+        {
+            "name": "section_id",
+            "type": "<Fix:5:hex>",
+            "description": "The ID of the memory section, which is fixed at 0x05."
+        },
+        {
+            "name": "memories",
+            "type": "<Vec:memory>",
+            "description": "A vector of memories that represent the memory component of a module."
+        }
+    ],
+    "memory": [
+        {
+            "name": "memory_type",
+            "type": "memtype",
+            "description": "The type of the memory."
+        }
+    ],
+    "export_section": [
+        {
+            "name": "section_id",
+            "type": "<Fix:07:hex>",
+            "description": "The ID of the export section, which is fixed at 0x07."
+        },
+        {
+            "name": "exports",
+            "type": "<Vec:export>",
+            "description": "A vector of exports that represent the exports component of a module."
+        }
+    ],
+    "export": [
+        {
+            "name": "name",
+            "type": "utf8str",
+            "description": "The name of the export."
+        },
+        {
+            "name": "desc",
+            "type": "<Union:func_exportdesc:table_exportdesc:mem_exportdesc:global_exportdesc>",
+            "description": "The description of the export, which can be a function index, a table index, a memory index, or a global index."
+        }
+    ],
+    "func_exportdesc": [
+        {
+            "name": "prefix",
+            "type": "<Fix:00:hex>",
+            "description": "A function export, identified by the byte 0x00."
+        },
+        {
+            "name": "desc",
+            "type": "funcidx",
+            "description": "The function index of the export."
+        }
+    ],
+    "table_exportdesc": [
+        {
+            "name": "prefix",
+            "type": "<Fix:01:hex>",
+            "description": "The table index of the export."
+        },
+        {
+            "name": "desc",
+            "type": "tableidx",
+            "description": "The table index of the export."
+        }
+    ],
+    "mem_exportdesc": [
+        {
+            "name": "prefix",
+            "type": "<Fix:02:hex>",
+            "description": ""
+        },
+        {
+            "name": "desc",
+            "type": "memidx",
+            "description": "The memory index of the export."
+        }
+    ],
+    "global_exportdesc": [
+        {
+            "name": "prefix",
+            "type": "<Fix:03:hex>",
+            "description": ""
+        },
+        {
+            "name": "desc",
+            "type": "globalidx",
+            "description": "The global index of the export."
+        }
+    ],
+    "tableidx": [
+        {
+            "name": "index",
+            "type": "u32",
+            "description": "A variable-length integer that refers to a table in the table section of a module. It is encoded using the unsigned LEB128 format."
+        }
+    ],
+    "data_section": [
+        {
+            "name": "section_id",
+            "type": "<Fix:0B:hex>",
+            "description": "The ID of the data section, which is fixed at 0x0B."
+        },
+        {
+            "name": "data_segments",
+            "type": "<Vec:data>",
+            "description": "A vector of data segments that represent the datas component of a module."
+        }
+    ],
+    "data": [
+        {
+            "name": "variant",
+            "type": "<Union:active_memory_zero:passive_def:active_memory_index>",
+            "description": "An integer indicating the variant of the data segment. 'active_memory_zero' for active with memory index 0, 'passive' for passive, 'active_memory_index' for active with a memory index."
+        }
+    ],
+    "active_memory_zero": [
+        {
+            "name": "flag",
+            "type": "<Fix:0:u32>",
+            "description": "A flag indicating this is an active data segment with memory index 0."
+        },
+        {
+            "name": "expression",
+            "type": "expr",
+            "description": "An expression defining the offset."
+        },
+        {
+            "name": "bytes",
+            "type": "<Vec:byte>",
+            "description": "A vector of bytes representing the data segment."
+        }
+    ],
+    "passive_def": [
+        {
+            "name": "flag",
+            "type": "<Fix:1:u32>",
+            "description": "A flag indicating this is a passive data segment."
+        },
+        {
+            "name": "bytes",
+            "type": "<Vec:byte>",
+            "description": "A vector of bytes representing the data segment."
+        }
+    ],
+    "active_memory_index": [
+        {
+            "name": "flag",
+            "type": "<Fix:2:u32>",
+            "description": "A flag indicating this is an active data segment with a memory index."
+        },
+        {
+            "name": "memory_index",
+            "type": "memidx",
+            "description": "The memory index."
+        },
+        {
+            "name": "expression",
+            "type": "expr",
+            "description": "An expression defining the offset."
+        },
+        {
+            "name": "bytes",
+            "type": "<Vec:byte>",
+            "description": "A vector of bytes representing the data segment."
+        }
+    ],
+    "custom_section": [
+        {
+            "name": "section_id",
+            "type": "<Fix:0:hex>",
+            "description": "The ID of the custom section, which is fixed at 0."
+        },
+        {
+            "name": "custom",
+            "type": "custom",
+            "description": "The custom data contained in the section."
+        }
+    ],
+    "custom": [
+        {
+            "name": "name",
+            "type": "utf8str",
+            "description": "A UTF-8 string that further identifies the custom section."
+        },
+        {
+            "name": "bytes",
+            "type": "<Vec:byte>",
+            "description": "An uninterpreted sequence of bytes for custom use."
+        }
+    ],
+    "globaltype": [
+        {
+            "name": "val_type",
+            "type": "valtype",
+            "description": "The type of the global variable."
+        },
+        {
+            "name": "mut",
+            "type": "<Union:mut_const:mut_mut>",
+            "description": "The mutability of the global variable, indicating whether it is constant or variable."
+        }
+    ]
+}

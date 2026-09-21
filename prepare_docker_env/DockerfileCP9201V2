@@ -1,0 +1,302 @@
+FROM ubuntu:20.04
+
+SHELL ["/bin/bash", "-c"]
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+ENV LANG=en_US.UTF-8
+ENV LC_ALL=en_US.UTF-8
+
+RUN apt-get update && \
+    apt-get install -y \
+        sudo \
+        curl \
+        gnupg \
+        build-essential \
+        git \
+        wget \
+        lsb-release \
+        software-properties-common \
+        python3 \
+        python3-pip \
+        m4 \
+        tzdata \
+        valgrind \
+        vim \
+        zsh \
+        ninja-build \
+        locales \
+        fonts-powerline \
+        gcc-multilib g++-multilib libc6-dev-i386 \
+        unzip && \
+    locale-gen en_US.UTF-8 && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install Node.js 20
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y nodejs && \
+    npm install -g npm@11.2.0 && \
+    npm config set fund false && \
+    npm config set audit false && \
+    npm config set update-notifier false
+
+# Install CMake 3.28.1
+RUN wget https://github.com/Kitware/CMake/releases/download/v3.28.1/cmake-3.28.1-linux-x86_64.sh \
+        -q -O /tmp/cmake-install.sh && \
+    chmod u+x /tmp/cmake-install.sh && \
+    mkdir -p /opt/cmake && \
+    /tmp/cmake-install.sh --skip-license --prefix=/opt/cmake && \
+    ln -s /opt/cmake/bin/* /usr/local/bin/ && \
+    rm /tmp/cmake-install.sh
+
+# Install Java 22.0.2 (OpenJDK, consistent with host; required by Perses/T-PDD/Vulcan)
+RUN wget -q \
+        https://download.java.net/java/GA/jdk22.0.2/c9ecb94cd31b495da20a27d4581645e8/9/GPL/openjdk-22.0.2_linux-x64_bin.tar.gz \
+        -O /tmp/jdk22.tar.gz && \
+    mkdir -p /opt/jdk22 && \
+    tar -xzf /tmp/jdk22.tar.gz -C /opt/jdk22 --strip-components=1 && \
+    rm /tmp/jdk22.tar.gz && \
+    ln -sf /opt/jdk22/bin/java /usr/local/bin/java && \
+    ln -sf /opt/jdk22/bin/javac /usr/local/bin/javac && \
+    ln -sf /opt/jdk22/bin/jar /usr/local/bin/jar
+ENV JAVA_HOME=/opt/jdk22
+ENV PATH=$JAVA_HOME/bin:$PATH
+
+# Create user reducer_testing with zsh as default shell, grant NOPASSWD sudo
+RUN useradd -m -s /usr/bin/zsh reducer_testing && \
+    echo 'reducer_testing:000000' | chpasswd && \
+    adduser reducer_testing sudo && \
+    echo 'reducer_testing ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
+
+WORKDIR /home/reducer_testing
+ENV HOME=/home/reducer_testing
+
+# Install LLVM-20 as root
+RUN wget https://apt.llvm.org/llvm.sh && \
+    chmod +x llvm.sh && \
+    ./llvm.sh 20 all && \
+    rm llvm.sh && \
+    ln -s /usr/bin/clang-20 /usr/bin/clang && \
+    ln -s /usr/bin/clang++-20 /usr/bin/clang++
+
+# Install LLVM-15 runtime libs (required by wasmedge AOT compile)
+RUN wget https://apt.llvm.org/llvm.sh && \
+    chmod +x llvm.sh && \
+    ./llvm.sh 15 && \
+    rm llvm.sh && \
+    apt-get install -y libllvm15 && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Install newer libstdc++ (wasmedge requires GLIBCXX_3.4.29/3.4.30, ubuntu 20.04 GCC9 only has 3.4.28)
+# Install libspdlog 1.11 and libfmt 9 (wasmedge runtime deps, not in ubuntu 20.04 default apt)
+RUN add-apt-repository -y ppa:ubuntu-toolchain-r/test && \
+    apt-get update && \
+    apt-get install -y libstdc++6 && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+RUN apt-get update && \
+    apt-get install -y cmake && \
+    apt-get clean && rm -rf /var/lib/apt/lists/* && \
+    cd /tmp && \
+    wget -q https://github.com/fmtlib/fmt/releases/download/9.1.0/fmt-9.1.0.zip && \
+    unzip -q fmt-9.1.0.zip && \
+    cd fmt-9.1.0 && cmake -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DFMT_TEST=OFF . && make -j$(nproc) && make install && \
+    cd /tmp && rm -rf fmt-9.1.0 fmt-9.1.0.zip && \
+    wget -q https://github.com/gabime/spdlog/archive/refs/tags/v1.11.0.tar.gz -O spdlog-1.11.0.tar.gz && \
+    tar xzf spdlog-1.11.0.tar.gz && \
+    cd spdlog-1.11.0 && cmake -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DSPDLOG_BUILD_EXAMPLE=OFF -DSPDLOG_FMT_EXTERNAL=ON . && make -j$(nproc) && make install && \
+    cd /tmp && rm -rf spdlog-1.11.0 spdlog-1.11.0.tar.gz && \
+    ldconfig
+
+# Install transplanted Binaryen shared library and tools (wasm-opt, wasm-as, ...)
+COPY prepare_docker_env/libbinaryen.so /usr/local/lib/libbinaryen.so
+COPY prepare_docker_env/binaryen_bin/ /opt/binaryen/bin/
+RUN chmod +x /opt/binaryen/bin/wasm-* && ldconfig
+ENV PATH=/opt/binaryen/bin:$PATH
+
+ENV CP9201_PATH_PROFILE=container
+
+USER reducer_testing
+
+# Create basic zsh/bash config files and bin directory
+RUN touch ~/.zshrc && \
+    mkdir -p $HOME/bin
+
+# Create wat-format stub (required by T-PDD/Perses WAT language init)
+RUN printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'set -euo pipefail' \
+    'file=""' \
+    'for arg in "$@"; do' \
+    '  case "$arg" in' \
+    '    -*) ;;' \
+    '    *) file="$arg" ;;' \
+    '  esac' \
+    'done' \
+    'if [ -n "$file" ] && [ "$file" != "-" ]; then' \
+    '  exec cat "$file"' \
+    'else' \
+    '  exec cat -' \
+    'fi' \
+    > $HOME/bin/wat-format && \
+    chmod +x $HOME/bin/wat-format
+RUN echo 'export PATH=$HOME/bin:$PATH' >> ~/.bashrc && \
+    echo 'export PATH=$HOME/bin:$PATH' >> ~/.zshrc
+
+# Install Rust and Cargo
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
+    echo 'source $HOME/.cargo/env' >> ~/.bashrc && \
+    echo 'source $HOME/.cargo/env' >> ~/.zshrc && \
+    echo 'export PATH=$HOME/.cargo/bin:$PATH' >> ~/.bashrc && \
+    echo 'export PATH=$HOME/.cargo/bin:$PATH' >> ~/.zshrc && \
+    . $HOME/.cargo/env
+ENV PATH=/home/reducer_testing/.cargo/bin:$PATH
+ENV PATH=/home/reducer_testing/bin:$PATH
+
+# Install Miniconda, initialize for bash and zsh
+RUN curl -O https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh && \
+    bash Miniconda3-latest-Linux-x86_64.sh -b -p $HOME/miniconda && \
+    rm Miniconda3-latest-Linux-x86_64.sh && \
+    $HOME/miniconda/bin/conda init bash && \
+    $HOME/miniconda/bin/conda init zsh && \
+    echo 'export PATH=$HOME/miniconda/bin:$PATH' >> ~/.bashrc && \
+    echo 'export PATH=$HOME/miniconda/bin:$PATH' >> ~/.zshrc
+
+# Create symlinks to LLVM components in user bin directory
+RUN ln -s /usr/bin/clang-20 $HOME/bin/clang-20 && \
+    ln -s /usr/bin/clang++-20 $HOME/bin/clang++ && \
+    ln -s /usr/bin/wasm-ld-20 $HOME/bin/wasm-ld-20 && \
+    ln -s /usr/bin/llvm-ar-20 $HOME/bin/llvm-ar-20 && \
+    ln -s /usr/bin/llvm-nm-20 $HOME/bin/llvm-nm-20 && \
+    ln -s /usr/bin/llvm-objcopy-20 $HOME/bin/llvm-objcopy-20 && \
+    ln -s /usr/bin/llvm-objdump-20 $HOME/bin/llvm-objdump-20 && \
+    ln -s /usr/bin/llvm-ranlib-20 $HOME/bin/llvm-ranlib-20 && \
+    ln -s /usr/bin/opt-20 $HOME/bin/opt-20 && \
+    ln -s /usr/bin/llc-20 $HOME/bin/llc-20
+
+
+# Clone and build wasm-tools (provides wasm-shrink)
+RUN git clone https://github.com/bytecodealliance/wasm-tools.git
+RUN cd wasm-tools && \
+    . $HOME/.cargo/env && \
+    cargo build --release && \
+    echo 'export PATH=$HOME/wasm-tools/target/release:$PATH' >> ~/.bashrc && \
+    echo 'export PATH=$HOME/wasm-tools/target/release:$PATH' >> ~/.zshrc && \
+    ln -s $HOME/wasm-tools/target/release/wasm-tools $HOME/bin/wasm-tools && \
+    $HOME/wasm-tools/target/release/wasm-tools --version
+
+# Clone and build wabt (provides wasm2wat, wat2wasm)
+RUN git clone --recursive https://github.com/WebAssembly/wabt.git
+RUN cd wabt && \
+    mkdir build && \
+    cd build && \
+    cmake .. && \
+    cmake --build . && \
+    sudo make install && \
+    echo 'export PATH=/usr/local/bin:$PATH' >> ~/.bashrc && \
+    echo 'export PATH=/usr/local/bin:$PATH' >> ~/.zshrc && \
+    ln -s /usr/local/bin/wasm2wat $HOME/bin/wasm2wat && \
+    ln -s /usr/local/bin/wat2wasm $HOME/bin/wat2wasm && \
+    ln -s /usr/local/bin/wasm-strip $HOME/bin/wasm-strip && \
+    ln -s /usr/local/bin/wasm-validate $HOME/bin/wasm-validate && \
+    ln -s /usr/local/bin/wasm-objdump $HOME/bin/wasm-objdump && \
+    $HOME/bin/wasm-strip --version && \
+    $HOME/bin/wasm-validate --version
+
+# Install wasmtime v35.0.0 (pinned, consistent with host)
+RUN wget -q \
+        https://github.com/bytecodealliance/wasmtime/releases/download/v35.0.0/wasmtime-v35.0.0-x86_64-linux.tar.xz \
+        -O /tmp/wasmtime.tar.xz && \
+    mkdir -p $HOME/.wasmtime/bin && \
+    tar -xJf /tmp/wasmtime.tar.xz -C /tmp && \
+    mv /tmp/wasmtime-v35.0.0-x86_64-linux/wasmtime $HOME/.wasmtime/bin/wasmtime && \
+    rm -rf /tmp/wasmtime.tar.xz /tmp/wasmtime-v35.0.0-x86_64-linux && \
+    echo 'export PATH=$HOME/.wasmtime/bin:$PATH' >> ~/.bashrc && \
+    echo 'export PATH=$HOME/.wasmtime/bin:$PATH' >> ~/.zshrc && \
+    ln -s $HOME/.wasmtime/bin/wasmtime $HOME/bin/wasmtime && \
+    $HOME/.wasmtime/bin/wasmtime --version
+
+# Copy conda environment file later to avoid invalidating earlier download/build layers.
+COPY --chown=reducer_testing:reducer_testing prepare_docker_env/reducer_testing.yml /home/reducer_testing/reducer_testing.yml
+
+# Create reducer_testing conda environment
+RUN source $HOME/miniconda/bin/activate && \
+    conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main && \
+    conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r && \
+    conda update -y conda && \
+    conda env create -f /home/reducer_testing/reducer_testing.yml && \
+    echo "reducer_testing conda environment created successfully"
+
+# Install oh-my-zsh and plugins
+RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended && \
+    git clone https://github.com/zsh-users/zsh-syntax-highlighting.git ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting && \
+    git clone https://github.com/zsh-users/zsh-autosuggestions ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-autosuggestions && \
+    git clone https://github.com/zsh-users/zsh-completions ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-completions && \
+    echo 'plugins+=(vscode)' >> ~/.zshrc
+
+# Configure oh-my-zsh theme and plugins (matching ORI configuration)
+RUN sed -i 's/ZSH_THEME="robbyrussell"/ZSH_THEME="agnoster"/' ~/.zshrc && \
+    sed -i 's/plugins=(git)/plugins=(git zsh-syntax-highlighting zsh-autosuggestions zsh-completions colored-man-pages command-not-found docker pip python)/' ~/.zshrc && \
+    echo 'export PATH=/opt/binaryen/bin:$PATH' >> ~/.bashrc && \
+    echo 'export PATH=/opt/binaryen/bin:$PATH' >> ~/.zshrc && \
+    echo 'autoload -U compinit && compinit' >> ~/.zshrc && \
+    echo 'HIST_STAMPS="yyyy-mm-dd"' >> ~/.zshrc && \
+    echo 'COMPLETION_WAITING_DOTS="true"' >> ~/.zshrc && \
+    echo 'ENABLE_CORRECTION="true"' >> ~/.zshrc && \
+    echo 'export PROMPT_EOL_MARK=""' >> ~/.zshrc && \
+    echo 'export PROMPT_COMMAND="pwd"' >> ~/.zshrc && \
+    echo 'export DEFAULT_USER="reducer_testing"' >> ~/.zshrc && \
+    echo 'export LANG=en_US.UTF-8' >> ~/.zshrc && \
+    echo 'export LC_ALL=en_US.UTF-8' >> ~/.zshrc && \
+    echo '' >> ~/.zshrc && \
+    echo '# Custom prompt dir configuration' >> ~/.zshrc && \
+    echo 'export AGNOSTER_PROMPT_SEGMENTS=(' >> ~/.zshrc && \
+    echo '    prompt_status' >> ~/.zshrc && \
+    echo '    prompt_context' >> ~/.zshrc && \
+    echo '    prompt_virtualenv' >> ~/.zshrc && \
+    echo '    prompt_dir' >> ~/.zshrc && \
+    echo '    prompt_git' >> ~/.zshrc && \
+    echo '    prompt_end' >> ~/.zshrc && \
+    echo ')' >> ~/.zshrc && \
+    echo 'prompt_dir() {' >> ~/.zshrc && \
+    echo '  prompt_segment blue black "%~"' >> ~/.zshrc && \
+    echo '}' >> ~/.zshrc
+
+# Copy required local artifacts late to avoid re-running downloads when these files change.
+COPY --chown=reducer_testing:reducer_testing prepare_docker_env/perses_deploy.jar /home/reducer_testing/perses/bazel-bin/src/org/perses/perses_deploy.jar
+COPY --chown=reducer_testing:reducer_testing prepare_docker_env/perses_wate_support.jar /home/reducer_testing/perses/wate_support.jar
+COPY --chown=reducer_testing:reducer_testing prepare_docker_env/T-PDD.jar /home/reducer_testing/T-PDD/T-PDD.jar
+COPY --chown=reducer_testing:reducer_testing prepare_docker_env/tpdd_wate_support.jar /home/reducer_testing/perses_for_tpdd/wate_support.jar
+COPY --chown=reducer_testing:reducer_testing prepare_docker_env/wasm-tools /home/reducer_testing/reducer_under_test/wasm-tools
+RUN mkdir -p /home/reducer_testing/reducer_under_test && \
+    ln -sf /opt/binaryen/bin/wasm-reduce /home/reducer_testing/reducer_under_test/wasm-reduce && \
+    ln -sf /opt/binaryen/bin/wasm-opt /home/reducer_testing/reducer_under_test/wasm-opt && \
+    chmod +x /home/reducer_testing/reducer_under_test/wasm-tools
+
+USER reducer_testing
+WORKDIR /home/reducer_testing
+
+# Install psutil for system Python (used by shebang-based predicate scripts).
+RUN sudo apt-get update && \
+    sudo apt-get install -y python3-psutil && \
+    sudo apt-get clean && \
+    sudo rm -rf /var/lib/apt/lists/*
+
+# Create startup script
+RUN echo '#!/bin/bash' > /home/reducer_testing/start.sh && \
+    echo 'if [ -f "$HOME/miniconda/bin/activate" ]; then' >> /home/reducer_testing/start.sh && \
+    echo '  source $HOME/miniconda/bin/activate reducer_testing || true' >> /home/reducer_testing/start.sh && \
+    echo 'fi' >> /home/reducer_testing/start.sh && \
+    echo 'if [ "$#" -eq 0 ]; then' >> /home/reducer_testing/start.sh && \
+    echo '  exec zsh -l' >> /home/reducer_testing/start.sh && \
+    echo 'else' >> /home/reducer_testing/start.sh && \
+    echo '  exec "$@"' >> /home/reducer_testing/start.sh && \
+    echo 'fi' >> /home/reducer_testing/start.sh && \
+    chmod +x /home/reducer_testing/start.sh
+
+ENTRYPOINT ["/home/reducer_testing/start.sh"]
+CMD ["zsh", "-l"]
+
+LABEL description="Wasm Reducer environment (reducer_testing/zsh, reducer_testing conda env, wasmtime v35.0.0, Java 22.0.2, LLVM-20)"
+
+
