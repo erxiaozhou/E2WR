@@ -138,7 +138,6 @@ def _get_type_repr_by_raw_repr(raw_type_repr:str)->str:
     # raw_type_repr = raw_type_repr.strip(' *')
     if is_imm_u32(raw_type_repr):
         return raw_type_repr
-        return '<u32>'
     if raw_type_repr in {'f32', 'f64', 'i32', 'i64', 'byte'}:
         return f'<{raw_type_repr}>'
     if raw_type_repr == 'valtype':

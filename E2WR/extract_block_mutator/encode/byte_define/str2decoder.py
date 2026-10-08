@@ -235,19 +235,3 @@ def type_desc_parser(type_desc_str:str)->NGDecoderP:
 
 def assert_valid_type_desc(type_desc_str:str)->None:
     return
-    if DecoderMemory.existed(type_desc_str):
-        return
-    elif FixPartDecoderFactory.support(type_desc_str):
-        return
-    elif VecDecoderFactory.support(type_desc_str):
-        return
-    elif ArrayDecoderFactory.support(type_desc_str):
-        return
-    elif UnionDecoderFactory.support(type_desc_str):
-        return
-    elif AllSizeGDecoderFactory.support(type_desc_str):
-        return
-    elif (':' not in type_desc_str):
-        return
-    else:
-        raise InvalidTypeDescException(f'Invalid type desc: {type_desc_str}')

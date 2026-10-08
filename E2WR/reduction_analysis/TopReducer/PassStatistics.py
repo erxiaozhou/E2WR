@@ -30,10 +30,6 @@ class PassStatistics:
                 "max_reduce_size": 0,      
                 "min_reduce_size": float('inf'), 
             }
-    def update_batch_stats(self, pass_names: list[str], results: list[ReduceResult], cause_update:bool):
-        for pass_name, result in zip(pass_names, results):
-            self.update_stats(pass_name, result, cause_update)
-
     def update_stats(self, pass_name: str, result: ReduceResult, cause_update:bool):
         self.add_pass(pass_name)
         

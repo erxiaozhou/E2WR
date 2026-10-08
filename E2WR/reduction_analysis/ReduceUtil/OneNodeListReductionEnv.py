@@ -10,7 +10,6 @@ from reduction_analysis.ASTInfo.AST import NodeList
 from reduction_analysis.InferStackUtil import _get_cur_context_by_ast_info
 from reduction_analysis.ASTInfo.AST import get_node_list_type_in_ast_practical
 from reduction_analysis.ReduceUtil.ReduceInsts_V5_util import OneElem
-from reduction_analysis.ReduceUtil.ReduceInsts_V5_util import RawElemsCache
 
 from reduction_analysis.StackState import StackState, StackStatus
 
@@ -21,7 +20,6 @@ class OneNodeListReductionCtx:
     node_type: funcType
     DEBUG: bool
     ori_node_list: NodeList
-    raw_elems_cache: RawElemsCache
 
     def build_stack_init_status(self) -> StackState:
         return StackState(
@@ -73,5 +71,4 @@ def build_one_node_list_reduction_ctx(
         node_type=node_type,
         DEBUG=DEBUG,
         ori_node_list=ori_node_list,
-        raw_elems_cache=RawElemsCache(),
     )

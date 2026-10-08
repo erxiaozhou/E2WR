@@ -1,7 +1,6 @@
-from extract_block_mutator.funcType import funcType
 from reduction_analysis.ProbDDUtil.ProbDDFactory import ProbDDFactory
 from reduction_analysis.ProbDDUtil.adapt_util import get_test_cfg_func_for_dd
-from .ReduceInsts_V5_util import OneElem, StackChange, cal_rest_time_and_reset_t0, gen_new_group_by_stack_change, gen_replacement_by_stack_change, gen_type_for_graph, get_node_type_common_stack_size
+from .ReduceInsts_V5_util import OneElem, StackChange, cal_rest_time_and_reset_t0, gen_replacement_by_stack_change, gen_type_for_graph
 from .V6V1GraphHelper import GraphHelper
 import time
 from typing import Optional

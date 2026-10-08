@@ -1,0 +1,13 @@
+(module
+  (table 2 funcref)
+  (elem (i32.const 0) $f1)
+  (global $g (mut i32) (i32.const 0))
+  (func $f1 (result i32) (i32.const 9))
+  (func $f2 (result i32) (global.get $g))
+  (func $start (export "_start")
+    (global.set $g (i32.const 4))
+    (drop (call $f1))
+    (drop (call $f1))
+    (drop (call $f2))
+  )
+)

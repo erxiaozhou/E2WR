@@ -1,6 +1,5 @@
 from enum import Enum
 from reduction_analysis.InferStackUtil import infer_stack_req_before_insts
-import time
 from typing import Optional
 
 from extract_block_mutator.Context import Context
@@ -18,8 +17,6 @@ from ..ASTInfo.ASTInfo import ASTInfo
 from ..ASTInfo.AST import ASTNodeLoc
 
 from ..StackState import StackState, StackStatus, get_stack_state_from_type_req
-class FailToAnalyzeTypeReq(Exception):
-    pass
 
 def get_node_type_req(ast_state, node:ASTINode):
     try:
@@ -40,161 +37,6 @@ def get_node_scope(node:ASTINode):
     end_idx = start_idx + node.get_length()
     return InstsScope(func_idx, start_idx, end_idx)
 
-def is_const_or_drop_inst(inst:Inst)->bool:
-    return is_const_inst(inst) or is_drop_inst(inst)
-
-def is_drop_inst(inst:Inst)->bool:
-    opcode = inst.opcode_text
-    if opcode == 'drop':
-        return True
-    else:
-        return False
-
-def is_const_inst(inst:Inst)->bool:
-    opcode = inst.opcode_text
-    if opcode == 'i32.const' \
-        or opcode == 'i64.const' \
-        or opcode == 'f32.const' \
-        or opcode == 'f64.const' \
-        or opcode == 'ref.null' \
-        or opcode == 'v128.const':
-        return True
-    else:
-        return False
-
-
-
-def is_all_const_or_all_drop_insts_node(node:ASTINode):
-    if isinstance(node,InstsNode):
-        insts = node.insts
-        is_all_const = True
-        is_all_drop = True
-        for inst in insts:
-            if not is_const_inst(inst):
-                is_all_const = False
-            if not is_drop_inst(inst):
-                is_all_drop = False
-        result =  is_all_const or is_all_drop
-    else:
-        result = False
-    return result
-
-def is_all_const_or_drop_insts_node(node:ASTINode):
-    if isinstance(node,InstsNode):
-        insts = node.insts
-        for inst in insts:
-            if not is_const_or_drop_inst(inst):
-                return False
-        return True
-    else:
-        return False
-
-
-
-def get_each_loc_type(
-    insts:list[Inst],
-    cur_status:StackState,
-    context:Context,
-    node_type:Optional[funcType] = None
-)->tuple[list[funcType], funcType, int, list[typeReq]]:
-    inst_types:list[funcType] = []
-    input_req = cur_status.as_type_req()
-    base_req = input_req
-    min_stack_depth = 0
-    can_drop_inst_num = 0
-    type_reqs = []
-    type_req_before_each_inst = []
-    type_req_before_each_inst.append(input_req)
-    # 
-    # 
-    for inst_idx, inst in enumerate(insts):
-        type_req = get_inst_ty_req(inst, context)
-        if type_req is None:
-            raise FailToAnalyzeTypeReq(f"Fail to analyze type req for inst: {inst}")
-
-        cur_base_req = merge_req(base_req, type_req)
-        assert len(cur_base_req.tys) > 0
-        # if len(cur_base_req.tys) == 1:
-        #     actual_type = cur_base_req.tys[0]
-        type_reqs.append(type_req)
-        type_req_before_each_inst.append(cur_base_req)
-        if type_req.req_type == 'eq':
-            if len(type_req.tys) == 1:
-                cur_inst_type = type_req.tys[0]
-            else:
-                type1 = _get_stack_type_from_type_req(base_req)
-                type2 = _get_stack_type_from_type_req(cur_base_req)
-                cur_inst_type =_get_inst_type_by_diff_type_diff(type1, type2, 0)
-                
-        else:
-            cur_inst_type = type_req.ty0
-            type1 = _get_stack_type_from_type_req(base_req)
-            mini_required_type_num = len(cur_inst_type.param_types)
-            assert inst_idx == len(insts) - 1, f'{inst_idx} != {len(insts) - 1}'
-            
-        inst_types.append(cur_inst_type)
-        base_req = cur_base_req
-
-    if len(type_req_before_each_inst[-1].tys)> 1:
-        if node_type is not None:
-            expected_last_state = merge_req(input_req, typeReq(tys=[node_type], req_type='eq'))
-            result_types = expected_last_state.ty0.result_types
-            matched_candi = None
-            for candi in type_req_before_each_inst[-1].tys:
-                candi_result_types = candi.result_types
-                min_len = min(len(candi_result_types), len(result_types))
-                if candi_result_types[len(candi_result_types)-min_len:] == result_types[len(result_types)-min_len:]:
-                    matched_candi = candi
-                    break
-            # assert matched_candi is not None, f'matched_candi is None: {type_req_before_each_inst[-1]}'
-            if matched_candi is not None:
-                type_req_before_each_inst[-1] = typeReq(tys=[matched_candi], req_type=type_req_before_each_inst[-1].req_type)
-            else:
-                pass
-        
-    # 
-    if (any(len(req.tys) > 1 for req in type_reqs)):
-        updated_type_idxs = refine_type_reqs(
-        node_type_reqs=type_reqs,  
-        state_type_reqs=type_req_before_each_inst 
-        )
-        for idx in updated_type_idxs:
-            inst_types[idx] = type_reqs[idx].ty0
-    
-
-    # 
-    cur_inst_stack_diff = 0
-    for cur_inst_type in inst_types:
-        cur_inst_stack_diff -= len(cur_inst_type.param_types)
-        min_stack_depth = min(min_stack_depth, cur_inst_stack_diff)
-        cur_inst_stack_diff += len(cur_inst_type.result_types)
-
-    begin_stack_types = get_stack_state_from_type_req(input_req).rest_types
-    end_stack_types = get_stack_state_from_type_req(base_req).rest_types
-    inst_seq_type = _get_inst_type_by_diff_type_diff(begin_stack_types, end_stack_types, -min_stack_depth)
-    return inst_types, inst_seq_type, can_drop_inst_num, type_reqs
-
-
-def _get_stack_type_from_type_req(type_req:typeReq)->list[str]:
-    return type_req.tys[0].result_types
-
-def _get_inst_type_by_diff_type_diff(type1:list[str], type2:list[str],requqired_num:int)->funcType:
-    common_num = 0
-    for ty1, ty2 in zip(type1, type2):
-        if ty1 == ty2:
-            common_num += 1
-        else:
-            break
-    max_to_reduce_common_num = len(type1) - requqired_num
-    common_num = min(common_num, max_to_reduce_common_num)
-    to_drop = type1[::-1][:len(type1)-common_num]
-    assert common_num <= len(type1)
-    to_drop: list[str] = type1[:len(type1)-common_num]
-    to_drop = type1[common_num:]
-    inner_layer_to_pad = type2[common_num:]
-    return funcTypeFactory.generate_one_func_type_default(to_drop, inner_layer_to_pad)
-
-
 def check_parser_match_wasm_file(parser:WasmParser, wasm_file:str)->bool:
     input_parser = get_parser_from_wasm_path(wasm_file)
     for cur_parser_func, input_parser_func in zip(parser.defined_funcs, input_parser.defined_funcs):
@@ -204,18 +46,6 @@ def check_parser_match_wasm_file(parser:WasmParser, wasm_file:str)->bool:
     return True
 
 
-def is_clean_stack_inst(inst:Inst)->bool:
-    op = inst.opcode_text
-    if op == 'unreachable':
-        return True
-    elif op == 'br':
-        return True
-    elif op == 'return':
-        return True
-    elif op == 'br_table':
-        return True
-    else:
-        return False
 
 def remove_empty_node_in_nodelist(node_list:NodeList)->None:
     to_remove = []
@@ -225,154 +55,6 @@ def remove_empty_node_in_nodelist(node_list:NodeList)->None:
     
     for n in to_remove:
         node_list.sub_nodes.remove(n)
-
-
-def refine_type_reqs(
-    node_type_reqs:list[typeReq], 
-    state_type_reqs:list[typeReq]
-    )->list[int]:
-    t0 = time.time()
-    to_reinfer_inst_idxs = []
-    updated_type_idxs = []
-    # 
-    for idx, req in enumerate(node_type_reqs):
-        # if req.req_type == 'eq':
-        if len(req.tys) != 1:
-            to_reinfer_inst_idxs.append(idx)
-    # if len(to_reinfer_inst_idxs) == 0:
-    #     return [] 
-    assert len(state_type_reqs) == len(node_type_reqs) + 1
-    try_times = 0
-    while True:
-        try_times += 1
-        has_remove_ = False
-        for inst_idx in range(len(node_type_reqs)-1, -1, -1):
-            before_req = state_type_reqs[inst_idx]
-            after_req = state_type_reqs[inst_idx+1]
-
-            if (len(node_type_reqs[inst_idx].tys) != 1 or len(before_req.tys) != 1):
-                cur_inst_candi_types = node_type_reqs[inst_idx].tys
-                before_req_candi_types = before_req.tys
-                possible_before_type_candis:list[funcType] = []
-                possible_cur_type_candis:list[funcType] = []
-                for candi_cur_type in cur_inst_candi_types:
-                    for candi_before_type in before_req_candi_types:
-                        _cur_inst_req = typeReq(tys=[candi_cur_type], req_type=node_type_reqs[inst_idx].req_type)
-                        _before_req = typeReq(tys=[candi_before_type], req_type=before_req.req_type)
-                        combined_req = merge_req(_before_req, _cur_inst_req)
-                        if len(combined_req.tys) == 0:
-                            continue
-                        if len(after_req.tys) == 1:
-                            min_result_len = min(
-                                len(combined_req.ty0.result_types),
-                                len(after_req.ty0.result_types),
-                                )
-                            if combined_req.ty0.result_types[len(combined_req.ty0.result_types)-min_result_len:] != after_req.ty0.result_types[len(after_req.ty0.result_types)-min_result_len:]:
-                                continue
-                        possible_before_type_candis.append(candi_before_type)
-                        possible_cur_type_candis.append(candi_cur_type)
-                node_type_reqs[inst_idx] = typeReq(tys=possible_cur_type_candis, req_type=node_type_reqs[inst_idx].req_type)
-                state_type_reqs[inst_idx] = typeReq(tys=possible_before_type_candis, req_type=before_req.req_type)
-                if len(possible_cur_type_candis) == 1 and inst_idx in to_reinfer_inst_idxs:
-
-                    updated_type_idxs.append(inst_idx)
-                    to_reinfer_inst_idxs.remove(inst_idx)
-                    has_remove_ = True
-        if not has_remove_:
-            break
-        print('cur refine times', try_times)
-        if try_times > 50:
-            raise ValueError(f'try_times > 50: {try_times}')
-    t1 = time.time()
-    # if t1 - t0 > 20:
-    #     raise ValueError(f'refine_type_reqs time cost: {t1 - t0}')
-    return updated_type_idxs
-
-
-def get_node_type_of_each_node(
-    node_list:NodeList,
-    ast_state:ASTState
-) -> tuple[list[funcType], list[typeReq], list[typeReq]]:
-    
-    node0_loc = node_list.loc
-    node_types = []
-    context, nodes, last_block_param, _ = get_structure_before_probe_loc(
-    node0_loc,
-    ast_state.parser,
-    ast_state.ast_info
-    )
-    base_req = infer_stack_req_before_insts(context, nodes, last_block_param)
-    node_type_reqs:list[typeReq] = []
-    node_types:list[funcType] = []
-    all_has_one_type = True
-    type_req_before_each_node = [base_req]
-    # init_stack
-    for node in node_list.sub_nodes:
-        node_type_req = get_node_type_req(ast_state, node)
-        if len(node_type_req.tys) != 1:
-            all_has_one_type = False
-        node_types.append(node_type_req.ty0)
-        node_type_reqs.append(node_type_req)
-        base_req = merge_req(base_req, node_type_req)
-        type_req_before_each_node.append(base_req)
-    # 
-    if all_has_one_type:
-        return node_types, node_type_reqs, type_req_before_each_node
-    ref_type = 'eq'
-    if len(type_req_before_each_node[-1].tys) != 1:
-        type_req_before_each_node[-1] = typeReq(tys=[
-                node_list.get_block_type()
-                ], req_type=ref_type)
-        
-    need_refine = False
-    for idx, req in enumerate(node_type_reqs):
-        if len(req.tys) != 1:
-            need_refine = True
-    if need_refine:
-        updated_type_idxs = refine_type_reqs(
-            node_type_reqs, 
-            type_req_before_each_node
-        )
-        for idx in updated_type_idxs:
-            node_types[idx] = node_type_reqs[idx].ty0
-    return node_types, node_type_reqs, type_req_before_each_node
-
-def get_node_type_reqs_of_each_node(
-    node_list:NodeList,
-    after_node_idx:int,
-    ast_state:ASTState
-) :
-    node0_loc = node_list.loc
-    node_types = []
-    context, nodes, last_block_param, _ = get_structure_before_probe_loc(
-    node0_loc,
-    ast_state.parser,
-    ast_state.ast_info
-    )
-    base_req = infer_stack_req_before_insts(context, nodes, last_block_param)
-    node_type_reqs:list[typeReq] = []
-    node_types:list[funcType] = []
-    type_req_before_each_node = [base_req]
-    for node in node_list.sub_nodes:
-        node_type_req = node.get_type_req(context)
-        node_types.append(node_type_req.ty0)
-        node_type_reqs.append(node_type_req)
-        base_req = merge_req(base_req, node_type_req)
-        type_req_before_each_node.append(base_req)
-    # 
-    type_req_before_each_node[-1] = typeReq(tys=[
-            node_list.get_block_type()
-            ], req_type='eq')
-    # 
-    
-    updated_type_idxs = refine_type_reqs(
-        node_type_reqs, 
-        type_req_before_each_node
-    )
-    for idx in updated_type_idxs:
-        node_types[idx] = node_type_reqs[idx].ty0
-    return type_req_before_each_node[after_node_idx+1]
-
 
 
 def infer_stack_types_using_before_loc_structure(
@@ -587,25 +269,6 @@ def get_stack_num_diff_from_inst_type(
     stored = len(inst_type.result_types)
     return taken, stored
 
-def get_context_and_cur_stack_type_req(
-    ori_node_list:NodeList,
-    ast_state:ASTState,
-) -> tuple[Context, typeReq]:
-    context, nodes, last_block_param, rest_insts= get_structure_before_probe_loc(
-        probe_loc=ori_node_list.loc,
-        parser=ast_state.parser, 
-        ast_info=ast_state.ast_info,
-        known_innermost_node=ori_node_list
-    )
-    parent_node_list = ori_node_list
-    cur_stack_type_req = infer_stack_types_using_before_loc_structure(
-        context=context,
-        nodes=nodes, 
-        last_block_param=last_block_param, 
-        rest_insts=rest_insts,
-        parent_node_list=parent_node_list
-    )
-    return context, cur_stack_type_req
 
 
 def get_try_time(inst_num:int)->int:

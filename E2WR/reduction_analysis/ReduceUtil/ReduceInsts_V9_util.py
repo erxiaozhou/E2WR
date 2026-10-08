@@ -14,10 +14,8 @@ from reduction_analysis.ASTState import ASTState
 from reduction_analysis.ReduceUtil.ElemGuidedNodeListReducerMultiNode import ElemGuidedNodeListReducerMultiNode
 from reduction_analysis.ReduceUtil.MutationInstsUtil import OneNodeListMutation
 from reduction_analysis.ReduceUtil.OneNodeListReductionEnv import OneNodeListReductionCtx
-from reduction_analysis.ReduceUtil.ReduceInsts_V5_util import cur_is_more_naive
 from .ReduceInsts_V7_mutation_util import (
     Replacement,
-    get_elem_mutation_for_sg_naive,
     get_elem_mutation_for_sg_ng,
     materialize_replacements,
 )
@@ -85,7 +83,6 @@ def finalize_multi_node_list_v9(
     *,
     reduce_applier: ElemGuidedNodeListReducerMultiNode,
     nl2planner: Mapping[NodeList, NodeListPlannerState],
-    nl2failed_sg_idxs: Mapping[NodeList, set[int]],
 ) -> NodeListElemInfo:
     out: dict[NodeList, list[OneElem]] = {}
     node_list2raw_len: dict[NodeList, int] = {}
@@ -95,12 +92,6 @@ def finalize_multi_node_list_v9(
         out[node_list] = planner.cur_elems
         node_list2raw_len[node_list] = planner.raw_length
         node_list2has_success[node_list] = planner.has_any_success
-
-        failed_sg_idxs = nl2failed_sg_idxs.get(node_list, set())
-        for sg_idx in sorted(failed_sg_idxs):
-            sg = planner.get_sg(sg_idx)
-            failed_elems = [planner.input_elems[i] for i in sorted(sg.sg_elem_idxs)]
-            planner.ctx.raw_elems_cache.add_failed_by_raw_elems(failed_elems)
 
     finalize_out_in_reverse_inst_order(
         reduce_applier=reduce_applier,
@@ -126,15 +117,9 @@ class NodeListElemInfo:
             )
         return next(iter(self.node_list2elems.items()))
 
-    def get_single_elems(self) -> list[OneElem]:
-        return self.get_single_node_list_and_elems()[1]
-
     @classmethod
     def from_single(cls, *, node_list: NodeList, elems: list[OneElem]) -> 'NodeListElemInfo':
         return cls(node_list2elems={node_list: elems})
-
-    def get_all_elem_lists(self):
-        return self.node_list2elems.values()
 
 
 class V7MutationPlannerBase:
@@ -200,18 +185,9 @@ class V7MutationPlannerBase:
         )
 
         return cur_is_more_naive_v2(raw_elems_in_sg, mutated_elems_in_sg)
-                # 
-        cur_non_trivial_inst_num = sum(1 for e in raw_elems_in_sg if not e.is_one_const_or_drop())
-        mutated_non_trivial_inst_num = sum(1 for e in mutated_elems_in_sg if not e.is_one_const_or_drop())
-        return mutated_non_trivial_inst_num < cur_non_trivial_inst_num
-        # 
-        return cur_is_more_naive(raw_elems_in_sg, mutated_elems_in_sg)
 
     def _maybe_register_sg_mutation(self, sg: SubGraph) -> bool:
-        if self.cfg.enable_minimal_replacement:
-            mutation = get_elem_mutation_for_sg_ng(sg, self.cfg)
-        else:
-            mutation = get_elem_mutation_for_sg_naive(sg, self.cfg)
+        mutation = get_elem_mutation_for_sg_ng(sg, self.cfg)
 
         if mutation is None:
             return False
@@ -241,9 +217,6 @@ class V7MutationPlannerBase:
             accepted_elem_mutation=self.accepted_elem_mutation,
             sg_replacements=self.sg_replacements,
         )
-
-    def on_dd_test_success(self, *, replaced_sg_idxs: set[int]) -> None:
-        return
 
 
 def try_replace_candidates_v7_multi_dd_test(
@@ -412,7 +385,6 @@ def run_probdd_for_multi_candidates(
         all_cand_ids=all_cand_ids,
         cand_id2info=cand_id2info,
     )
-    print(f'Current all candidates: {list(all_cand_ids)}')
     test_config = get_test_cfg_func_for_dd(reduce_func)
     dd = ProbDDFactory.get_default_probdd(test_config, task_id=task_id)
     minimal_config = dd(list(all_cand_ids), expected_end_time=expected_end_time)

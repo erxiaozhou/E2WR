@@ -36,7 +36,6 @@ def is_prefix_name(name:str)->bool:
         num_part = name[7:]
         if num_part.isdigit():
             raise Exception('To remove the fucntion')
-            return True
     return False
 
 class FailedDecodeException(Exception): pass

@@ -3,9 +3,6 @@ from extract_block_mutator.InstGeneration.InstFactory import InstFactory
 from extract_block_mutator.InstUtil import Inst
 
 
-def infer_padding_inst_num(existing_layer, expected_layer):
-    to_drop, inner_layer_to_pad = get_padding_meta_data(existing_layer, expected_layer)
-    return len(to_drop) + len(inner_layer_to_pad)
 
 def get_padding_meta_data(existing_layer, expected_layer):
     common_num = 0
@@ -32,12 +29,6 @@ def padding_input_type_naive(existing_layer, expected_layer):
         
     return insts
 
-def padding_core(to_remove_num:int, to_add_types:list[str])->list[Inst]:
-    insts = []
-    insts.extend(generate_n_drops(to_remove_num))
-    for ty in to_add_types:
-        insts.append(get_inst_by_require_ty_const_n(ty))
-    return insts
 
 
 def generate_n_drops(stack_len:int):

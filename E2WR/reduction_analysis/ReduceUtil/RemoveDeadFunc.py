@@ -171,19 +171,6 @@ def _remove_corresponding_export_func(
     
     return func_inst_mutations, section_mutations
 
-def _detect_func_with_the_same_type(
-    parser: WasmParser,
-    to_remove_dunc_idxs: set[int],
-    target_func_idx:int
-)->Optional[int]:
-    target_func_type = parser.types[parser.defined_func_ty_ids[target_func_idx]]
-    for func_idx, type_idx in enumerate(parser.func_type_idxs):
-        if func_idx in to_remove_dunc_idxs:
-            continue
-        type_ = parser.types[type_idx]
-        if type_ == target_func_type:
-            return func_idx
-    return None
 
 
 def _rewrite_func_idxs_after_delete_a_func(

@@ -8,11 +8,6 @@ from enum import Enum
 
 
 _case_p = re.compile(r'^.*?\.wasm:.*?:')
-def get_wasm_validate_err(p):
-    run_result = run_with_timeout(f'wasm-validate {p}', timeout=100)
-    err_text = run_result['stderr'].strip(' \t\n')
-    err_text = re.sub(_case_p, '', err_text)
-    return err_text
 
 
 class ValidateCheckType(Enum):

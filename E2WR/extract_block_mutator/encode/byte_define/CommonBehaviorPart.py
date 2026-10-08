@@ -12,17 +12,6 @@ from ..PartDesc import PartDesc
 
 
 
-# def the_one_non_prefix_name_optional(attribute_name2decoders):
-#     fix_num = 0
-#     possible_name = None
-#     for name, desc  in attribute_name2decoders.items():
-#         if not FixPartDecoderFactory.support(desc):
-#             fix_num += 1
-#             possible_name= name
-#     if fix_num == 1:
-#         return possible_name
-#     return None
-
 class CommonBehaviorPart(NGDecoderP):
     part_desc: PartDesc
     

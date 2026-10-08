@@ -21,14 +21,6 @@ class ProbDDFactory:
         ProbDDFactory._summary_logger = logger
 
     @staticmethod
-    def enable_p0_pred():
-        ProbDDFactory._use_p0_pred = True
-
-    @staticmethod
-    def set_default_initialP(initialP:float):
-        ProbDDFactory.default_initialP = initialP
-
-    @staticmethod
     def use_a_initp_temp(tmp_initialP:float):
         ProbDDFactory.tmp_last_p = ProbDDFactory.default_initialP
         ProbDDFactory.default_initialP = tmp_initialP
@@ -38,10 +30,6 @@ class ProbDDFactory:
         if ProbDDFactory.tmp_last_p is not None:
             ProbDDFactory.default_initialP = ProbDDFactory.tmp_last_p
             ProbDDFactory.tmp_last_p = None
-
-    @staticmethod
-    def set_summary_logger(logger:logging.Logger):
-        ProbDDFactory._summary_logger = logger
 
     @staticmethod
     def get_default_probdd(test, 

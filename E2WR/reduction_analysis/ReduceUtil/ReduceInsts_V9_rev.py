@@ -1,15 +1,11 @@
-from extract_block_mutator.Context import Context
-from extract_block_mutator.funcType import funcType
 from typing import Optional
 import time
 
 from reduction_analysis.ReduceUtil.ElemGuidedNodeListReducerMultiNode import ElemGuidedNodeListReducerMultiNode
 from reduction_analysis.ReduceUtil.V6V1GraphHelper import SubGraphRepo
-from .ReduceInsts_V5_util import OneElem
 from .ReduceInsts_cfg_util import V7Cfg
 from .V6V1GraphHelper import get_eq_sgs
 from reduction_analysis.ReduceUtil.OneNodeListReductionEnv import OneNodeListReducerApplier, OneNodeListReductionCtx
-from .V6V1GraphHelper import sg_is_cf_only
 from reduction_analysis.ReduceUtil.ReduceInsts_V9_util import (
     NodeListElemInfo,
     V7DDNodeListData,
@@ -106,21 +102,15 @@ def call_V9_rev_multi_basic(
                 planner = nl2planner[node_list]
                 if run_state.replaced_sg_idxs:
                     planner.replaced_sg_idxs.update(run_state.replaced_sg_idxs)
-                    planner.on_dd_test_success(replaced_sg_idxs=run_state.replaced_sg_idxs)
                 planner.has_any_success = True
             else:
                 # No progress for this NodeList: defer this batch for that NodeList,
                 # equivalent to ReduceNodeListV7REV's per-batch defer.
                 nl2deferred_unreplaceable[node_list].update(nl2batch_sg_idxs.get(node_list, set()))
 
-    nl2failed_sg_idxs: dict[NodeList, set[int]] = {}
-    for node_list, planner in nl2planner.items():
-        nl2failed_sg_idxs[node_list] = planner.tried_sg_idxs - planner.replaced_sg_idxs
-
     return finalize_multi_node_list_v9(
         reduce_applier=reduce_applier,
         nl2planner=nl2planner,
-        nl2failed_sg_idxs=nl2failed_sg_idxs,
     )
 
 

@@ -30,17 +30,6 @@ class NewInstStrategy(ABC):
         return gen_new_insts_node(insts, loc, given_type)
 
 
-class GenUnreachableInst(NewInstStrategy):
-    def __init__(self, expected_type: Optional[funcType] = None) -> None:
-        self.can_preserve_type = True
-        super().__init__()
-        self.expected_type = expected_type
-
-    def get_insts_for_replace(self) -> list[Inst]:
-        if self.expected_type is not None and self.expected_type.result_types == self.expected_type.param_types:
-            return []
-        else:
-            return [InstFactory.opcode_inst('unreachable')]
 
 
 class GenSpecificType(NewInstStrategy):

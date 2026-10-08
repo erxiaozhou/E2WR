@@ -6,19 +6,15 @@
 # according to those terms.
 
 import logging
-from random import shuffle
 import time
 from .InnerInfo import InnerInfo, Emulator, BetaEmulator
 from .InferP0History import InferP0History
 import collections
-import math
 from typing import Optional, Any
 from .update_p0_util import should_update_p0_bak3, update_global_probability_v2
-from .sample_util import entropy_based_sampling
 from file_util import get_logger
-from itertools import combinations
 from .outcome_cache import OutcomeCache
-from .cal_ieg2m_util import cal_actual_ig, cal_ieg2m
+from .cal_ieg2m_util import cal_actual_ig
 DEBUG_DD = False
 
 logger = logging.getLogger(__name__)
@@ -69,17 +65,15 @@ class AbstractProbDD(object):
     PASS = 'PASS'
     FAIL = 'FAIL'
 
-    def __init__(self, test, split, cache=None, id_prefix=(), initialP=0.1, ig_sample=False, update_p0=False,given_inip:Optional[dict[int,float]]=None, logger:Optional[logging.Logger]=None, task_id:Optional[str]=None):
+    def __init__(self, test, cache=None, id_prefix=(), initialP=0.1, update_p0=False,given_inip:Optional[dict[int,float]]=None, logger:Optional[logging.Logger]=None, task_id:Optional[str]=None):
         """
         Initialise an abstract DD class. Not to be called directly, only by
         super calls in subclass initializers.
         :param test: A callable tester object.
-        :param split: Splitter method to break a configuration up to n parts.
         :param cache: Cache object to use.
         :param id_prefix: Tuple to prepend to config IDs during tests.
         """
         self._test = test
-        self._split = split
         self._cache = cache or OutcomeCache()
         self._id_prefix = id_prefix
         self.p = collections.OrderedDict()
@@ -88,7 +82,6 @@ class AbstractProbDD(object):
         self.threshold = 0.8
         self.initialP = max(min(self.threshold-0.001, initialP), 0.001)
         self.passconfig = []
-        self.ig_sample = ig_sample
         self.update_p0 = update_p0
         self.given_inip = given_inip
 
@@ -151,11 +144,7 @@ class AbstractProbDD(object):
                 else:
                     print(f"prob size: {len(self.p)}")
             # print(self.p)
-            assert not self.ig_sample
-            if self.ig_sample:
-                deleteconfig = self.sample2()
-            else:
-                deleteconfig = self.sample(weights=weights)
+            deleteconfig = self.sample(weights=weights)
             
             if self.update_p0 and large_enough and len(deleteconfig) + inner_info.cur_epoch_visited_elem_num >= inner_info.epoch_start_elem_num:
                 print('HAS SAMPLE ALL')
@@ -185,7 +174,7 @@ class AbstractProbDD(object):
             if outcome is None:
                 outcome = self._test_config(config2test,config_id)
             test_in_main += 1
-            # cur_step_gain = cal_ieg2m(set(deleteconfig),self.testHistory, self.p, self._get_d_update_deleteconfig)
+
             cur_step_gain_actual = cal_actual_ig(set(deleteconfig),self.testHistory, self.p, self._get_d_update_deleteconfig, outcome == self.PASS)
             total_info += cur_step_gain_actual
             # self.logger.info(f'[{run}] [{outcome}] : {len(deleteconfig)}; SUM: {sum(self.p.values()):.4f}; PASS_PROB: {cal_pass_prob(self.p, deleteconfig)-0.5:.4f}, ENTROPY: {cur_step_gain:.4f} TOTAL: {total_info:.4f} ACTUAL: {cur_step_gain_actual:.4f}')
@@ -339,24 +328,7 @@ class AbstractProbDD(object):
         while i > k:
             i = i - 1
             config2test.append(keylist[i])
-        # print("selected deletion size: " + str(len(config2test)))
-        # for elm in config2test:
-        #     print(self.p[elm],)
-        # print("\n")
-        # print(f'config2test: {config2test}')
-        # print('selected weights: ', {k:weights[k] for k in config2test} if weights is not None else 'No weights')
-        # print('selected ps: ', {k:self.p[k] for k in config2test})
-        # input('XXXXXXXXXX')
         return config2test
-
-
-    def sample2(self, considered_elems:Optional[set[int]]=None):
-      
-        if considered_elems is not None:
-            assert len(considered_elems) > 0
-        selected_elements = entropy_based_sampling(dict(self.p), considered_elems=considered_elems)
-        
-        return selected_elements
 
 
     def _test_done(self):
@@ -455,33 +427,3 @@ class AbstractProbDD(object):
             if i in c2:
                 return True
         return False
-
-
-def _get_determined_elem_num(p:collections.OrderedDict):
-    r_ = 0
-    for elem, _prob in p.items():
-        if _prob >= 1:
-            r_ += 1
-        elif _prob < 1e-6:
-            r_ += 1
-    return r_
-
-
-def cal_pass_prob(p_dict, elems):
-    p = 1
-    for elem in elems:
-        p *= (1 - p_dict[elem])
-    return p
-
-
-def get_subsets_minus_one(input_set: set):
-    if len(input_set) <= 1:
-        return []
-    
-    target_length = len(input_set) - 1
-    return [set(combo) for combo in combinations(input_set, target_length)]
-
-
-def cal_entropy(p_dict, elems):
-    p = cal_pass_prob(p_dict, elems)
-    return -p * math.log2(p) - (1 - p) * math.log2(1 - p)

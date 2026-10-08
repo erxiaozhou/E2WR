@@ -1,16 +1,9 @@
 
-from reduction_analysis.ProbDDUtil.ProbDDFactory import ProbDDFactory
-from reduction_analysis.ReduceUtil.ElemGuidedNodeListReducerMF import transform_group_mutation_to_standard_param
-from reduction_analysis.ASTInfo.AST import NodeList
-from reduction_analysis.ProbDDUtil.adapt_util import get_test_cfg_func_for_dd
-from typing import Optional
-import time
-from .ReduceInsts_V5_util import ArbitraryElemGroup, OneElem, StackChange, gen_type_for_graph
+from .ReduceInsts_V5_util import ArbitraryElemGroup, OneElem
 from reduction_analysis.ReduceUtil.OneNodeListReductionEnv import OneNodeListReducerApplier
 from reduction_analysis.ReduceUtil.OneNodeListReductionEnv import OneNodeListReductionCtx
-from .ReduceInsts_V5_util import MutElemGroup, ImmGroup, ElemGroupBase
+from .ReduceInsts_V5_util import ImmGroup, ElemGroupBase
 from .ReduceInsts_V5_util import last_is_unreachable_like, next_group_is_unreachable
-from .ReduceInsts_V9_util import NodeListElemInfo
 
 
 
@@ -41,106 +34,6 @@ def reduce_by_unreachable_like_inst(
                 reduce_applier.finalize(ctx.ori_node_list, raw_elems_length, reduced_elems)
                 break
     return reduced_elems
-
-def reduce_surrounding_groups(
-    ctx: OneNodeListReductionCtx,
-    elems: list[OneElem],
-    reduce_applier: OneNodeListReducerApplier,
-    rest_time: Optional[float] = None,
-    DEBUG: bool = False
-    ):
-    elem_groups = split_surround_unreachable_groups(elems)
-    reducer = SurroundUnreachableReducer(
-        ctx=ctx,
-        elem_groups=elem_groups,
-        reduce_applier=reduce_applier,
-        DEBUG=DEBUG,
-    )
-    result =  reducer.reduce(rest_time=rest_time)
-    # 
-    result_elems = []
-    for group in result:
-        result_elems.extend(group.elems)
-    return result_elems
-
-
-
-class SurroundUnreachableReducer:
-    def __init__(self,
-                 ctx: OneNodeListReductionCtx,
-                 elem_groups: list[ElemGroupBase],
-                 reduce_applier: OneNodeListReducerApplier,
-                 DEBUG: bool = False
-                 ):
-        self.ctx = ctx
-        self.elem_groups = elem_groups.copy()
-        self.group_num = len(self.elem_groups)
-        self.reduce_applier = reduce_applier
-        self.ori_node_list = ctx.ori_node_list
-        self.expected_end_time = None
-        self.DEBUG = DEBUG
-        self.raw_len = 0
-        for group in elem_groups:
-            # self.raw_len += group.
-            for elem in group.elems:
-                self.raw_len += elem.get_length()
-        # 
-        self.raw_groups =  elem_groups.copy()
-        self.accepted_groups_mutation = {}
-        #
-        self.can_replace_idxs = get_surround_unreachable_replaceable_group_idxs(self.elem_groups)
-
-    def gen_new_groups_and_try(self, to_save_group_idxs:list[int]) -> bool:
-        if self.expected_end_time is not None and time.time() > self.expected_end_time:
-            return False
-        
-        to_replaced_group_idxs = self.can_replace_idxs - set(to_save_group_idxs)
-        # 
-        new_mutation = {gid:MutElemGroup([]) for gid in to_replaced_group_idxs}
-        cur_mutation = {}
-        cur_mutation.update(self.accepted_groups_mutation)
-        cur_mutation.update(new_mutation)
-        # 
-        raw_elems, mutation_elem_idx2new_elems = transform_group_mutation_to_standard_param(self.raw_groups, cur_mutation)
-        # 
-        result = self.reduce_applier.gen_replacement_by_elems_and_test_by_mutation(
-            ctx=self.ctx,
-            raw_elems=raw_elems,
-            mutation_elem_idx2new_elems=mutation_elem_idx2new_elems,
-            check_invalid_and_return_false=not self.DEBUG
-        )
-        if result:
-            self.accepted_groups_mutation.update(new_mutation)
-            new_elem_groups = []
-            for idx in range(self.group_num):
-                if idx in self.accepted_groups_mutation:
-                    new_elem_groups.append(self.accepted_groups_mutation[idx])
-                else:
-                    new_elem_groups.append(self.raw_groups[idx])
-            self.elem_groups = new_elem_groups
-            self.has_success = True
-        return result
-
-    def reduce(self, rest_time: Optional[float] = None) -> list[ElemGroupBase]:
-        self.has_success = False
-        if rest_time is not None:
-            self.expected_end_time = time.time() + rest_time
-        # expected_end_time = None
-        if not self.can_replace_idxs:
-            return self.elem_groups
-        # 
-        test_config = get_test_cfg_func_for_dd(self.gen_new_groups_and_try)
-        config = list(sorted(self.can_replace_idxs))
-        dd = ProbDDFactory.get_default_probdd(test_config, task_id='V5NLU')
-        minimal_config = dd(config, expected_end_time=self.expected_end_time)
-        print(f"V5NLU minimal config: {minimal_config}")
-        if self.has_success:
-            # 
-            cur_elems = []
-            for group in self.elem_groups:
-                cur_elems.extend(group.elems)
-            self.reduce_applier.finalize(self.ori_node_list, self.raw_len, cur_elems)
-        return self.elem_groups
 
 
 def split_surround_unreachable_groups(elems: list[OneElem]) -> list[ElemGroupBase]:

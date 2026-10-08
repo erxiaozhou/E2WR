@@ -137,7 +137,6 @@ class UnionPart(StructuredDecoder):
         # for sub_decoder in self.sub_decoders:
         if len(possible_decoder_idxs) == 0:
             raise FailedDecodeException(f'Failed to decode;')
-            raise FailedDecodeException(f'Failed to decode; The sub decoders are {self.sub_decoders[:10]} ... Bytes: {[int(x) for x in ba_view[:10]]}')
         for idx in possible_decoder_idxs:
             sub_decoder = self.sub_decoders[idx]
             try:
@@ -148,7 +147,6 @@ class UnionPart(StructuredDecoder):
                 continue
             
         raise FailedDecodeException(f'Failed to decode;')
-        raise FailedDecodeException(f'Failed to decode; The sub decoders are {self.sub_decoders[:10]} ... Bytes: {[int(x) for x in ba_view[:10]]}')
 
     # def get
 

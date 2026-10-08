@@ -2,12 +2,10 @@
 from typing import Optional, Sequence
 from dataclasses import dataclass
 from functools import cached_property
-from bisect import bisect_left
 from extract_block_mutator.Context import Context
 from reduction_analysis.ReduceUtil.ElemOperandMappingV2 import  EdgeType, GraphQuery, InstIdx, VopWT, build_graph_by_elems
 from itertools import chain
-from .ReduceInsts_V5_util import MutElemGroupV6, OneElem, change_cost, get_seq_common_prefix_len, infer_mini_stack_change, sort_and_get_continuous_groups
-from .ReduceInsts_V5_util import ImmGroup
+from .ReduceInsts_V5_util import OneElem, get_seq_common_prefix_len, infer_mini_stack_change, sort_and_get_continuous_groups
 from .find_eq_subg_util import find_subsequence_positions
 MAX_EQ_LINK = 10
 
@@ -18,10 +16,6 @@ class StackSnapshot:
     graph_helper: 'GraphHelper'
     elem_idx: int
 
-    @staticmethod
-    def _ops_to_types(ops: STACK_SNAPSHOT) -> list[str]:
-        return [op.type_info for op in ops]
-
     @cached_property
     def raw_ops(self) -> STACK_SNAPSHOT:
         return self.graph_helper.get_raw_stack_snapshot_before_elem(self.elem_idx)
@@ -31,30 +25,6 @@ class StackSnapshot:
         raw = self.raw_ops
         return list(vop for vop in raw if not self.graph_helper.graph.op_is_taken_by_any(vop))
 
-    @cached_property
-    def non_cf_types(self) -> list[str]:
-        return self._ops_to_types(self.non_cf_ops)
-
-    @cached_property
-    def non_cf_types_t(self) -> tuple[str, ...]:
-        return tuple(self.non_cf_types)
-
-    @cached_property
-    def raw_types(self) -> list[str]:
-        return self._ops_to_types(self.raw_ops)
-
-    @cached_property
-    def raw_types_t(self) -> tuple[str, ...]:
-        return tuple(self.raw_types)
-
-    def last_n_non_cf_ops(self, n: int) -> list[VopWT]:
-        ops = self.non_cf_ops
-        return list(ops[len(ops) - n:])
-
-    def last_n_non_cf_gen_sources(self, n: int) -> list[Optional[tuple[OneElem, int]]]:
-        ops = self.last_n_non_cf_ops(n)
-        return self.graph_helper.get_vop_gen_sources(ops)
-
 
 class SGComponentWOpInfo:
     def __init__(
@@ -62,9 +32,6 @@ class SGComponentWOpInfo:
         elem_idxs: list[int],
         taken_ops:list[VopWT],
         gen_ops:list[VopWT],
-        *,
-        gen_op_sources: list[tuple[int, int]],
-        elem_idx2elem: dict[int, OneElem],
     ):
         # Keep the same public attributes as before.
         self.elem_idxs: list[int] = elem_idxs
@@ -74,20 +41,6 @@ class SGComponentWOpInfo:
         self.gen_op_list = gen_ops
         self.sgc_taken_ops = set(taken_ops)
         self.sgc_gen_ops = set(gen_ops)
-        # 
-        self._gen_op_sources: list[tuple[int, int]] = list(gen_op_sources)
-        self._elem_idx2elem: dict[int, OneElem] = dict(elem_idx2elem)
-
-
-    def get_gen_op_sources(self) -> list[tuple[OneElem, int]]:
-        result: list[tuple[OneElem, int]] = []
-        for elem_idx, gen_op_idx in self._gen_op_sources:
-            elem = self._elem_idx2elem.get(elem_idx)
-            assert elem is not None, (
-                f"Missing OneElem for elem_idx={elem_idx}; component elem_idxs={self.elem_idxs}"
-            )
-            result.append((elem, gen_op_idx))
-        return result
 
     def __str__(self) -> str:
         return f'C({self.elem_idxs}, drop:{self.drop_types}, gen:{self.comp_gen_types})'
@@ -111,9 +64,6 @@ class SubGraph:
         self.idx = idx
         self.enable_internal_cancel = enable_internal_cancel
 
-        self.raw_init_snapshot: StackSnapshot = raw_init_snapshot
-        self.raw_end_snapshot: StackSnapshot = raw_end_snapshot
-
         self.raw_taken_ops: set[VopWT] = set()
         self.raw_gen_ops: set[VopWT] = set()
         for comp in components:
@@ -125,7 +75,6 @@ class SubGraph:
         self.ops_from_outside = self.raw_taken_ops - self.raw_gen_ops
         ops_to_outside: set[VopWT] = self.raw_gen_ops - self.raw_taken_ops
         self.ops_to_outside_non_cf = ops_to_outside.intersection(set(stack_snapshot_after_last_elem_non_cf))
-        self.ops_to_outside_cf = ops_to_outside - self.ops_to_outside_non_cf
         # 
         self.sg_elem_idxs: list[int] = []
         for comp in components:
@@ -133,10 +82,8 @@ class SubGraph:
         self.sg_elem_idxs = sorted(self.sg_elem_idxs)
         self.has_one_elem = len(self.sg_elem_idxs) == 1
         # 
-        self.more_gen_num_than_taken = len(self.raw_gen_ops) - len(self.raw_taken_ops)
-        # 
-        init_ops = list(self.raw_init_snapshot.raw_ops)
-        end_ops = list(self.raw_end_snapshot.raw_ops)
+        init_ops = list(raw_init_snapshot.raw_ops)
+        end_ops = list(raw_end_snapshot.raw_ops)
         common_prefix = get_seq_common_prefix_len(init_ops, end_ops)
 
         self.raw_external_input_ops = [
@@ -179,29 +126,12 @@ class GraphHelper:
         # * build groups and subgraphs
         # 
         dd_subgraphs = qurier.find_subgraph_ncf_inst_sequences()
-        self.elem_idx2taken_any_cnt = qurier.count_vop_from_any()
-        self.elem_idx2_consumed_by_any_cnt = qurier.count_vop_taken_by_any()
         # Stack snapshots are memoized on demand to avoid eager O(N) copies.
         # Keys are stack-boundary indices: 0..all_elem_num.
         self._idx2stack_snapshots: dict[int, STACK_SNAPSHOT] = {}
         # Cache boundary view objects so their cached_property results persist.
         self._boundary_idx2snapshot: dict[int, StackSnapshot] = {}
 
-        # Map each produced op to (elem_idx, produced_op_index). Only for ops whose
-        # producer is a real elem in this graph.
-        self.op2gen_origin: dict[VopWT, tuple[int, int]] = {}
-
-        # Cache op -> (OneElem, produced_op_idx) mapping for fast value resolution.
-        # Ops produced outside the concrete inst stream are intentionally absent.
-        self._op2elem_and_gen_idx: dict[VopWT, tuple[OneElem, int]] = {}
-        for inst_idx, produced_ops in self.graph.inst_idx_to_produced_ops.items():
-            elem_idx = inst_idx.idx
-            if not (0 <= elem_idx < len(self.elems)):
-                continue
-            for produced_op_idx, op in enumerate(produced_ops):
-                if op not in self.op2gen_origin:
-                    self.op2gen_origin[op] = (elem_idx, produced_op_idx)
-        
         self.sg_in_contigous_idxs:list[list[list[int]]] = []
         # self
         
@@ -247,17 +177,9 @@ class GraphHelper:
     def get_stack_type_after_elem(self, elem_idx:int)->StackSnapshot:
         return self.get_stack_snapshot(elem_idx + 1)
 
-    def get_stack_type_before_elem_non_cf(self, elem_idx:int)->tuple[str,...]:
-        return self.get_stack_snapshot(elem_idx).non_cf_types_t
-    def get_stack_type_after_elem_non_cf(self, elem_idx:int)->tuple[str,...]:
-        return self.get_stack_type_before_elem_non_cf(elem_idx + 1)
 
-   
     def count_dependency_on_cf(self, elem_idx:int) ->tuple[int, list[str]]:
         return self.qurier.count_dependency_on_cf(elem_idx)
-
-    def get_elem_symbol(self, elem_idx:int)->InstIdx:
-        return self.graph.numidx2_instidx[elem_idx]
 
     def get_ops_taken_by_elem(self, elem_idx:int)->list[VopWT]:
         inst_ = self.graph.numidx2_instidx[elem_idx]
@@ -268,27 +190,9 @@ class GraphHelper:
         return self.graph.inst_idx_to_produced_ops.get(inst_, [])
     def get_stack_ops_before_elem(self, elem_idx:int)->list[VopWT]:
         return self.get_raw_stack_snapshot_before_elem(elem_idx)
-        inst_ = self.graph.numidx2_instidx[elem_idx]
-        return self.graph.inst2stack_before_it[inst_]
 
     def get_stack_ops_after_elem(self, elem_idx:int)->list[VopWT]:
         return self.get_stack_ops_before_elem(elem_idx + 1)
-
-    def get_vop_gen_source(self, op: VopWT) -> Optional[tuple[OneElem, int]]:
-        cached = self._op2elem_and_gen_idx.get(op)
-        if cached is not None:
-            return cached
-        origin = self.op2gen_origin.get(op)
-        if origin is None:
-            return None
-        elem_idx, gen_op_idx = origin
-        producer_elem = self.elems[elem_idx]
-        pair = (producer_elem, gen_op_idx)
-        self._op2elem_and_gen_idx[op] = pair
-        return pair
-
-    def get_vop_gen_sources(self, ops: Sequence[VopWT]) -> list[Optional[tuple[OneElem, int]]]:
-        return [self.get_vop_gen_source(op) for op in ops]
 
 
 
@@ -302,23 +206,10 @@ class SubGraphRepo:
     def get_sg_by_idx(self, sg_idx:int)->SubGraph:
         return self._sg_idx2sg[sg_idx]
 
-    def __contains__(self, sg_idx:int)->bool:
-        return sg_idx in self._sg_idx2sg
-
     def items(self):
         return self._sg_idx2sg.items()
 
-    def __iter__(self):
-        return iter(self._sg_idx2sg.items())
 
-    @property
-    def sg_num(self)->int:
-        return len(self._sg_idx2sg)
-
-    def get_all_keys(self)->list[int]:
-        return list(self._sg_idx2sg.keys())
-
-   
 class SGBuilder:
     _count = 0
 
@@ -374,49 +265,12 @@ class SGBuilder:
             taken_ops = [operand_remap.get(o, o) for o in taken_ops]
             gen_ops = [operand_remap.get(o, o) for o in gen_ops]
         #
-        gen_op_sources = self._get_ops_taken_consumed_by_sg(elem_idxs)
-        elem_idx2elem = {idx: self.graph_helper.elems[idx] for idx in elem_idxs}
-
         replacement_info = SGComponentWOpInfo(
             elem_idxs=list(elem_idxs),
             taken_ops=taken_ops,
             gen_ops=gen_ops,
-            gen_op_sources=gen_op_sources,
-            elem_idx2elem=elem_idx2elem,
         )
         return replacement_info
-     
-    def _get_ops_taken_consumed_by_sg(
-        self,
-        elem_idxs_in_sg: Sequence[int],
-    # ) -> tuple[set[VopWT], set[VopWT], list[tuple[int, int]]]:
-    ) -> list[tuple[int, int]]:
-        raw_gen_ops: set[VopWT] = set()
-        op2origin: dict[VopWT, tuple[int, int]] = {}
-        # 
-        first_elem_idx = min(elem_idxs_in_sg)
-        last_elem_idx = max(elem_idxs_in_sg)
-        end_ops = set(self.graph_helper.get_stack_ops_after_elem(last_elem_idx))
-        start_ops = set(self.graph_helper.get_stack_ops_before_elem(first_elem_idx))
-        # 
-        for elem_idx in elem_idxs_in_sg:
-            cur_gen_ops = self.graph_helper.get_ops_generated_by_elem(elem_idx)
-            raw_gen_ops.update(cur_gen_ops)
-
-            for gen_op_idx, op in enumerate(cur_gen_ops):
-                if op not in op2origin:
-                    op2origin[op] = (elem_idx, gen_op_idx)
-        # 
-        all_gen_ops = end_ops - start_ops
-        # Keep a stable order aligned with op creation idx.
-        sorted_gen_ops = sorted(all_gen_ops, key=lambda o: o.idx)
-        gen_op_sources: list[tuple[int, int]] = []
-        for op in sorted_gen_ops:
-            assert op in op2origin, (
-                f"gen op {op} missing origin info; elem_idxs={list(elem_idxs_in_sg)}"
-            )
-            gen_op_sources.append(op2origin[op])
-        return gen_op_sources
 
 def init_subgraph_repo(
     init_graph_helper:GraphHelper,
@@ -545,68 +399,22 @@ class SubGraphSplitter:
         return prefix_subgraphs
 
 
-    def _get_same_type_scopes(
-        self,
-        idxs_in_sg: list[int],
-        stack_types_to_idxs: dict[tuple[str, ...], list[int]],
-    ) -> list[tuple[int, int]]:
-        if len(idxs_in_sg) <= 1:
-            return []
-
-        # Collect candidates from adjacent equal-type boundary positions.
-        candidates: set[tuple[int, int]] = set()
-        for _stack_types, idxs in stack_types_to_idxs.items():
-            if len(idxs) < 2:
-                continue
-            sorted_same_type = sorted(idxs)
-            for i in range(len(sorted_same_type) - 1):
-                start_idx = sorted_same_type[i]
-                end_idx = sorted_same_type[i + 1]
-                assert start_idx < end_idx
-                # Keep only if the interval covers at least one elem idx from this sg.
-                l = bisect_left(idxs_in_sg, start_idx)
-                r = bisect_left(idxs_in_sg, end_idx)
-                if l < r:
-                    candidates.add((start_idx, end_idx))
-
-        if not candidates:
-            return []
-
-        # Select maximum number of non-overlapping intervals.
-        # Greedy by earliest end is optimal for maximizing cardinality.
-        sorted_candidates = sorted(candidates, key=lambda se: (se[1], se[0]))
-        chosen: list[tuple[int, int]] = []
-        last_end = -1
-        for start_idx, end_idx in sorted_candidates:
-            if start_idx >= last_end:
-                chosen.append((start_idx, end_idx))
-                last_end = end_idx
-
-        chosen.sort(key=lambda se: (se[0], se[1]))
-        return chosen
-
-
     def replace_a_graph(
         self, 
         raw_sg_idx:int,
         subgraph_repo: SubGraphRepo,
-        replace_for_VP=True,
     ) -> list[SubGraph]:
         raw_sg = subgraph_repo.get_sg_by_idx(raw_sg_idx)
-        new_sgs = self.gen_new_sgs_ori(raw_sg, replace_for_VP=replace_for_VP)
+        new_sgs = self.gen_new_sgs_ori(raw_sg)
         for new_sg in new_sgs:
             subgraph_repo.insert_sg(new_sg)
         return new_sgs
 
     def gen_new_sgs_ori(self, 
                     raw_sg:SubGraph,
-                    replace_for_VP = True,
                     ):
         idxs_in_sg = sorted(raw_sg.sg_elem_idxs)
-        raw_elem_idx_set = set(idxs_in_sg)
-        result: list[SubGraph] = []
-        uncovered_idxs = set(idxs_in_sg)
-        
+
         if len(idxs_in_sg) == 1:
             raw_elem_idx = idxs_in_sg[0]
             component = self.sg_builder.gen_sg_component(
@@ -614,101 +422,7 @@ class SubGraphSplitter:
             )
             raw_sg = self.sg_builder.gen_sg_core([component])
             return [raw_sg]
-        # * find same eqs
-        # Only consider stack-boundary positions relevant to this subgraph.
-        # A stack-balanced segment is [start_idx, end_idx) where stack_before[start_idx] == stack_before[end_idx].
-        # We must ensure the covered element indices are fully inside the current subgraph.
-        sg_end_boundary = idxs_in_sg[-1] + 1
-        stack_positions_in_sg = sorted(set(idxs_in_sg + [sg_end_boundary]))
-        stack_types_to_idxs: dict[tuple[str,...], list[int]] = {}
-        for idx in stack_positions_in_sg:
-            stack_types = self.graph_helper.get_stack_type_before_elem_non_cf(idx)
-            stack_types_to_idxs.setdefault(stack_types, []).append(idx)
-        have_new_split = False
-# ===========================================================================================================================
-        # * approach 1: pick maximum number of non-overlapping same-type scopes,
-        #   then build one new SubGraph for each scope (indices restricted to original sg).
-        
-
-        if not replace_for_VP:
-            same_type_scopes = self._get_same_type_scopes(idxs_in_sg, stack_types_to_idxs)
-            for start_idx, end_idx in same_type_scopes:
-                # Indices inside this scope, restricted to the original sg.
-                l = bisect_left(idxs_in_sg, start_idx)
-                r = bisect_left(idxs_in_sg, end_idx)
-                idxs_in_scope = idxs_in_sg[l:r]
-                if not idxs_in_scope:
-                    continue
-                # Scopes are non-overlapping, so idxs_in_scope should be disjoint across scopes.
-                # uncovered_idxs tracks what remains available from the original sg.
-                cur_covered_in_sg = set(idxs_in_scope) & uncovered_idxs
-                if not cur_covered_in_sg:
-                    continue
-                if cur_covered_in_sg == raw_elem_idx_set:
-                    continue
-                have_new_split = True
-                # Finish this SG identification.
-                # There is a new subgraph to create.
-                components: list[SGComponentWOpInfo] = []
-                for one_seq in sort_and_get_continuous_groups(cur_covered_in_sg):
-                    component = self.sg_builder.gen_sg_component(elem_idxs=one_seq)
-                    components.append(component)
-                result.append(self.sg_builder.gen_sg_core(components))
-                uncovered_idxs -= cur_covered_in_sg
-# ===========================================================================================================================
-        if have_new_split:
-            # * approach 3: 
-            continous_idx_seqs = sort_and_get_continuous_groups(uncovered_idxs)
-            for one_seq in continous_idx_seqs:
-                new_component = self.sg_builder.gen_sg_component(
-                    elem_idxs=one_seq,
-                )
-                result.append(self.sg_builder.gen_sg_core([new_component]))
-        else:
-            return self._split_sg_by_last_inst_and_local_dd(raw_sg.sg_elem_idxs)
-            # * approach 4: fallback split for an sg whose elem idxs may be non-contiguous.
-           
-            init_stack = self.graph_helper.get_stack_type_before_elem_non_cf(idxs_in_sg[0])
-            final_stack = self.graph_helper.get_stack_type_after_elem_non_cf(idxs_in_sg[-1])
-
-            # Pick a split boundary. Keep candidates small: only boundaries at existing elem indices
-            # (excluding the first), which guarantees both sides are non-empty.
-            split_candidates = idxs_in_sg[1:]
-            # split_candidates is non-empty here because len(idxs_in_sg)==1 is handled above.
-
-            split_pos2cost: dict[int, int] = {}
-            for split_pos in split_candidates:
-                stack_before_split = self.graph_helper.get_stack_type_before_elem_non_cf(split_pos)
-                split_pos2cost[split_pos] = change_cost(init_stack, stack_before_split) + change_cost(stack_before_split, final_stack)
-            split_pos = min(split_pos2cost.items(), key=lambda kv: kv[1])[0]
-
-            left_set = {i for i in idxs_in_sg if i < split_pos}
-            right_set = {i for i in idxs_in_sg if i >= split_pos}
-            # Both sides are non-empty by construction:
-            # - left_set contains idxs_in_sg[0] (since split_pos comes from idxs_in_sg[1:])
-            # - right_set contains split_pos itself.
-            assert left_set and right_set
-
-            left_components: list[SGComponentWOpInfo] = []
-            for one_seq in sort_and_get_continuous_groups(left_set):
-                left_components.append(
-                    self.sg_builder.gen_sg_component(
-                        elem_idxs=one_seq,
-                    )
-                )
-
-            right_components: list[SGComponentWOpInfo] = []
-            for one_seq in sort_and_get_continuous_groups(right_set):
-                
-                right_components.append(
-                    self.sg_builder.gen_sg_component(
-                        elem_idxs=one_seq,
-                    )
-                )
-
-            result.append(self.sg_builder.gen_sg_core(left_components))
-            result.append(self.sg_builder.gen_sg_core(right_components))
-        return result
+        return self._split_sg_by_last_inst_and_local_dd(raw_sg.sg_elem_idxs)
 
 
 class EqSubGraphManager:
@@ -988,58 +702,6 @@ class EqSubGraphManager:
     def op_is_v_produce(self, op:VopWT)->bool:
         produce_relation = self.graph.operand_to_producer_relation[op]
         return produce_relation == EdgeType.CF_PRODUCE
-    def _get_eq_taken_ops_v2(self, elem_idx:int)->list[list[VopWT]]:
-        taken_ops = self.graph_helper.get_ops_taken_by_elem(elem_idx)
-        taken_ops = [op for op in taken_ops if not self.op_is_v_produce(op)]
-        if len(taken_ops) == 0:
-            return []
-
-        # We look for stack ops that can be removed together with this consumer so that
-        # the resulting stack *types* match the stack after this elem.
-        #
-        # This works for both:
-        # - drop-like ops (taken=1, gen=0)
-        # - arithmetic ops like i32.add (taken=2, gen=1)
-        #
-        # Example for i32.add on [i32, i32]:
-        #   after-types is [i32], so we remove one of the two pre-stack i32 values.
-        stack_ops = list(self.graph_helper.get_raw_stack_snapshot_before_elem(elem_idx))
-        stack_after_ops = list(self.graph_helper.get_raw_stack_snapshot_after_elem(elem_idx))
-        stack_op_types = [vop.type_info for vop in stack_ops]
-        stack_after_types = [vop.type_info for vop in stack_after_ops]
-
-        if len(stack_after_types) > len(stack_op_types):
-            return []
-
-        all_idxs = set(range(len(stack_ops)))
-        can_keep_idxs = find_subsequence_positions(
-            stack_after_types,
-            stack_op_types,
-            max_results=MAX_EQ_LINK,
-        )
-
-        # Convert keep-indices -> remove-indices, and keep order stable.
-        can_taken_idxs: list[list[int]] = []
-        seen_removed_idxs: set[tuple[int, ...]] = set()
-        for keep_idxs in can_keep_idxs:
-            removed_idxs_t = tuple(sorted(all_idxs - set(keep_idxs)))
-            if removed_idxs_t in seen_removed_idxs:
-                continue
-            seen_removed_idxs.add(removed_idxs_t)
-            can_taken_idxs.append(list(removed_idxs_t))
-
-        taken_ops_set = set(taken_ops)
-        result = []
-        for taken_idxs in can_taken_idxs:
-            if len(taken_idxs) == 0:
-                continue
-            matched_ops = [stack_ops[i] for i in taken_idxs]
-            if taken_ops_set == set(matched_ops):
-                continue
-            # if set(matched_ops).issubset(taken_ops_set):
-            #     continue
-            result.append(matched_ops)
-        return result
     def _get_concrete_elems_gen_ops(self, target_ops:set[VopWT])->Optional[set[InstIdx]]:
         result: set[InstIdx] = set()
         # for consumer,

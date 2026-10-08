@@ -108,7 +108,6 @@ class GlobalTypeRepr(SpecTypeRepr):
         inferred_idx =inst.get_imm_by_ph(self.type_repr)
         if inferred_idx >= len(context_info.global_val_types):
             return None
-            raise Exception(f'Required global idx: {inferred_idx};; \n {len(context_info.global_val_types)};;\nglobal_types: {context_info.global_val_types}')
         return context_info.global_val_types[inferred_idx]
 
 
@@ -141,7 +140,6 @@ class LocalTypeRepr(SpecTypeRepr):
         inferred_idx =inst.get_imm_by_ph(self.type_repr)
         if inferred_idx >= len(context_info.local_types):
             return None
-            raise Exception(f'Required local idx: {inferred_idx};; \n {len(context_info.local_types)};;\nlocal_types: {context_info.local_types}')
         return context_info.local_types[inferred_idx]
 
 
@@ -179,7 +177,6 @@ class TableTypeRepr(SpecTypeRepr):
         inferred_idx =inst.get_imm_by_ph(idx_text)
         if inferred_idx >= len(context_info.table_types):
             return None
-            raise Exception(f'Required table idx: {inferred_idx};; \n {len(context_info.table_types)};;\ntable_types: {context_info.table_types}')
         return context_info.table_types[inferred_idx]
 
 

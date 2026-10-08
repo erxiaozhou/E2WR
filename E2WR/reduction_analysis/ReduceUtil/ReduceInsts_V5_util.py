@@ -105,11 +105,6 @@ class ElemTypeInfo:
         return self._gen_op_num
 
     @property
-    def elem_type(self):
-        assert self._elem_type is not None
-        return self._elem_type
-
-    @property
     def is_not_sure_type(self):
         return self._elem_type is None
 
@@ -172,7 +167,6 @@ class StackChange:
         self.taken_op_type_list = taken_op_type_list.copy()
         self.taken_op_num = len(taken_op_type_list)
         self.gen_types = gen_types.copy()
-        self.have_take_rest_op =  (self.taken_op_num > 0)
         self.is_not_determined_type = 'any' in self.gen_types
 
     def __str__(self) -> str:
@@ -180,62 +174,6 @@ class StackChange:
 
     def __repr__(self) -> str:
         return self.__str__()
-
-    @property
-    def gen_op_num(self)->int:
-        return len(self.gen_types)
-
-    # @property
-    # def 
-
-    @classmethod
-    def empty(cls):
-        return cls([], [])
-
-    def merge_one(self, drop_or_type:Union[DropOrType, 'ElemTypeInfo']):
-        if isinstance(drop_or_type, DropOrType):
-            eq_sc = _drop_or_type_to_stack_change(drop_or_type)
-            gen_vals = eq_sc.gen_types
-            taken_op_type_list = eq_sc.taken_op_type_list
-            takne_num = eq_sc.taken_op_num
-        else:
-            eq_sc = drop_or_type
-            gen_vals = eq_sc.gen_ops
-            taken_op_type_list = eq_sc.taken_ops
-            takne_num = eq_sc.taken_op_num
-        raw_gen_type_num = len(self.gen_types)
-
-        # update taken_op_num
-        rest_stack_op_num = raw_gen_type_num - takne_num
-        if rest_stack_op_num < 0:
-            extra_needed = -rest_stack_op_num
-            # Consume more than currently generated: record the extra taken types
-            self.taken_op_num += extra_needed
-            self.taken_op_type_list.extend(taken_op_type_list[:extra_needed])
-            self.have_take_rest_op = True
-            self.gen_types = gen_vals
-        else:
-            self.gen_types = self.gen_types[:rest_stack_op_num] + gen_vals
-
-    def not_take_any_op(self)->bool:
-        return self.taken_op_num == 0
-
-
-    @property
-    def taken_op_type_strs(self)->list[str]:
-        return [ty.type_str for ty in self.taken_op_type_list]
-
-    @property
-    def common_stack_size(self)->int:
-        return get_node_type_common_stack_size(
-                param_types=self.taken_op_type_strs,
-                result_types=self.gen_types
-        )
-
-    @property
-    def mini_replacement_length(self)->int:
-        common_size = self.common_stack_size
-        return (self.taken_op_num - common_size) + (self.gen_op_num - common_size)
 
 class OneElem:
     def __init__(
@@ -246,7 +184,6 @@ class OneElem:
         raw_index:Optional[int]=None
     ):
         self.raw_index = raw_index
-        self.elem_idx = elem_idx
         self.elem = elem
         self.elem_type_info = elem_type_info
         self._stack_change = None
@@ -261,20 +198,6 @@ class OneElem:
             return self.elem.get_length()
         else:
             raise ValueError('Elem is neither Inst nor ASTINode')
-
-    def to_vp_types(self)->Optional[list[str]]:
-        if self.is_cf_related_inst():
-            return None
-        elif self.is_one_const_or_drop():
-            return None
-        gen_op_types = self.elem_type_info.gen_ops
-        if len(gen_op_types) == 0:
-            return None
-        if 'any' in gen_op_types:
-            return None
-        if 'funcref' in gen_op_types or 'externref' in gen_op_types:
-            return None
-        return gen_op_types
 
     @property
     def stack_change(self)->StackChange:
@@ -310,14 +233,6 @@ class OneElem:
             return True
         return False
 
-    def is_unreachable_inst(self)->bool:
-        opcode = self.inst_opcode
-        if opcode is None:
-            return False
-        if opcode == 'unreachable':
-            return True
-        return False
-
     def is_one_const_or_drop(self)->bool:
         opcode = self.inst_opcode
         if opcode is None:
@@ -336,24 +251,8 @@ class OneElem:
 
     def __repr__(self) -> str:
         return self.__str__()
-
     def is_determined_type(self)->bool:
         return not self.elem_type_info.is_not_sure_type
-
-    @property
-    def gen_ops(self):
-        return self.elem_type_info.gen_ops
-
-    @property
-    def taken_ops(self):
-        return self.elem_type_info.taken_ops
-
-    @property
-    def taken_op_num(self):
-        return self.elem_type_info.taken_op_num
-    @property
-    def gen_op_num(self):
-        return self.elem_type_info.gen_op_num
 
     def as_insts(self)->list[Inst]:
         if isinstance(self.elem, Inst):
@@ -365,47 +264,15 @@ class OneElem:
 
 
 
-def _drop_or_type_to_stack_change(
-    drop_or_type:DropOrType
-):
-    if drop_or_type.is_drop:
-        takne_num = 1
-        taken_ops = [gen_type_for_graph('any')]
-        gen_vals = []
-    else:
-        # takne_num = len(drop_or_type.inst_type.param_types)
-        taken_ops = [gen_type_for_graph(ty) for ty in drop_or_type.inst_type.param_types]
-        gen_vals = drop_or_type.inst_type.result_types.copy()
-    return StackChange(taken_ops, gen_vals)
-
 class ElemGroupBase:
     def __init__(
         self,
         elems:list[OneElem]
     ):
         self.elems = elems
-        self._index = None
-    
-    def get_length(self)->int:
-        total_len = 0
-        for elem in self.elems:
-            total_len += elem.get_length()
-        return total_len
-    def is_one_const_or_drop(self)->bool:
-        raise NotImplementedError
 
-    def is_determined_type(self)->bool:
-        raise NotImplementedError
-        return True
-
-    def as_insts(self)->list[Inst]:
-        insts = []
-        for elem in self.elems:
-            insts.extend(elem.as_insts())
-        return insts
-
-    def set_index(self, index):
-        self._index = index
+    def is_empty(self)->bool:
+        return len(self.elems) == 0
 
     def __str__(self) -> str:
         return f'{self.__class__.__name__}({self.elems})'
@@ -413,160 +280,18 @@ class ElemGroupBase:
     def __repr__(self) -> str:
         return self.__str__()
 
-    @property
-    def index(self):
-        assert self._index is not None
-        return self._index
-
-    def is_empty(self)->bool:
-        return len(self.elems) == 0
-
 
 class ArbitraryElemGroup(ElemGroupBase):pass
 
-class MutElemGroup(ElemGroupBase):
-    def __init__(
-        self,
-        elems:list[OneElem]
-    ):
-        super().__init__(elems)
-        self.stack_change = StackChange.empty()
-        # self.have_take_rest_op
-        for elem in elems:
-            # print(f'Cur Elem is {elem.as_insts()}')
-            # elem_type_info = elem.elem_type_info.elem_type
-            self.stack_change.merge_one(elem.elem_type_info)
-
-        self.remove_donot_affect_next_group_op_taken = self.stack_change.not_take_any_op()
-        # self.start_elem_idx = self.elems[0].elem_idx
-        
-
-    def is_one_const_or_drop(self)->bool:
-        if len(self.elems) != 1:
-            return False
-        inner_insts = self.elems[0].as_insts()
-        if len(inner_insts) != 1:
-            return False
-        inst = inner_insts[0]
-        if inst.opcode_text.endswith('.const'):
-            return True
-        if inst.opcode_text == 'drop':
-            return True
-        if inst.opcode_text == 'ref.null':
-            return True
-        return False
-
-    @property
-    def have_take_rest_op(self)->bool:
-        return self.stack_change.have_take_rest_op
-
-
-    @property
-    def start_elem_idx(self):
-        return self.elems[0].elem_idx
-
-    @classmethod
-    def from_one(cls,
-        elem
-    ):
-        return cls([elem])
-
-
-    def is_determined_type(self)->bool:
-        return True
-
-
-
-class MutElemGroupV6(MutElemGroup):
-    def __init__(
-        self,
-        elems:list[OneElem],
-        elem_idxs:list[int],
-        taken_from_any_op_num:list[int],
-        consumed_by_any_op_num:list[int]
-    ):
-        self.elems = elems
-        self._index = None
-        self.stack_change = StackChange.empty()
-        # self.have_take_rest_op
-        for elem, taken_from_any, taken_by_any in zip(elems, taken_from_any_op_num, consumed_by_any_op_num):
-            # print(f'Cur Elem is {elem.as_insts()}')
-            # elem_type_info = elem.elem_type_info.elem_type
-            to_append_type_info = elem.elem_type_info
-            # 
-            gen_ops = to_append_type_info.gen_ops
-            taken_ops = to_append_type_info.taken_ops
-            actual_gen_ops = gen_ops[taken_from_any:]
-            actual_taken_ops = taken_ops[:len(taken_ops)-taken_by_any]
-            actual_elem_type_info = ArbElemTypeInfo(
-                gen_ops=actual_gen_ops,
-                taken_ops=[ty.type_str for ty in actual_taken_ops]
-            )
-            # 
-            
-            self.stack_change.merge_one(actual_elem_type_info)
-
-        self.remove_donot_affect_next_group_op_taken = self.stack_change.not_take_any_op()
-        # super().super().__init__(elems)
-        # self.stack_change = StackChange.empty()
-
-        self.taken_from_any_op_num = taken_from_any_op_num
-        self.consumed_by_any_op_num = consumed_by_any_op_num
-        self.elem_idxs = elem_idxs
-
-    def is_one_const_or_drop(self)->bool:
-        return super().is_one_const_or_drop()
-
-    @property
-    def start_elem_idx(self):
-        return min(self.elem_idxs)
-
-    def is_determined_type(self)->bool:
-        # 
-        if 'any' in self.stack_change.gen_types:
-            return False
-        return True
-        cs = self.stack_change.common_stack_size
-        gen_ops = self.stack_change.gen_types
-        if 'any' in gen_ops[cs:]:
-            return False
-        return True
-        # 
-        return super().is_determined_type()
-
+class MutElemGroup(ElemGroupBase):pass
 
 
 class ImmGroup(ElemGroupBase):
-    def __init__(
-        self,
-        elems:list[OneElem],
-        idxs:Optional[list[int]]=None
-    ):
-        super().__init__(elems)
-        self.idxs = idxs
-
-    @property
-    def start_elem_idx(self):
-        if self.idxs is not None:
-            return min(self.idxs)
-        else:
-            raise ValueError('idxs must be provided for ImmGroup')
-
-    def is_one_const_or_drop(self)->bool:
-        return False
-
     def is_unreachable_inst(self)->bool:
         only_inst = self.get_the_only_one_inst()
         if only_inst is None:
             return False
         if only_inst.opcode_text == 'unreachable':
-            return True
-        return False
-    def tail_likes_unreachable(self)->bool:
-        only_inst = self.get_the_only_one_inst()
-        if only_inst is None:
-            return False
-        if only_inst.opcode_text in ['return', 'br',  'br_table', 'unreachable']:
             return True
         return False
     def get_the_only_one_inst(self)->Optional[Inst]:
@@ -577,135 +302,12 @@ class ImmGroup(ElemGroupBase):
             return None
         inst = inner_insts[0]
         return inst
-    @classmethod
-    def from_one(cls,
-        elem
-    ):
-        return cls([elem])
 
-    def is_determined_type(self)->bool:
-        return False
-
-class RawElemProbModel:
-    def __init__(
-        self,
-        init_elems:list[int]
-        ):
-        self.p:dict[int, float] = collections.OrderedDict()
-        assert init_elems
-        init0 = 1 / len(init_elems) 
-        for idx in init_elems:
-            self.p[idx] = init0
-        # 
-    def update_once(
-        self,
-        selected_elem_idxs:set[int],
-        deleteconfig:set[int],
-        success:bool
-    ):
-        if success:
-            for idx in deleteconfig:
-                self.p[idx] = 0
-        else:
-            self._update_probabilities_on_fail(deleteconfig, selected_elem_idxs, self.p)
-
-    def _update_probabilities_on_fail(self, deleteconfig, _config2test, d):
-        if not deleteconfig:
-            return
-        ratio = self.computRatio(deleteconfig, d)
-        if ratio is None:
-            return
-        for key in deleteconfig:
-            if 0 < d.get(key, 0) < 1:
-                d[key] = min(1.0, d[key] * ratio)
-
-
-    def computRatio(self, deleteconfig, p):
-        tmplog = 1
-        for delc in deleteconfig:
-            if p[delc] > 0 and p[delc] < 1:
-                tmplog *= (1 - p[delc])
-        denom = 1 - tmplog
-
-        return 1 / denom
 
 
 RawElemCacheKey = int
 
-ENABLE_COVERED_HASH_CACHE: bool = True   # covered_hashs exact-sequence dedup (applier)
-ENABLE_FAILED_IDXS_CACHE: bool = False    # failed_idxs cross-phase removal-set memory
-
 class RawElemsCache:
-    def __init__(self):
-        # self.covered_idxs:set[RawElemCacheKey] = set()
-        self.covered_hashs:set[int] = set()
-        self.failed_idxs:set[frozenset[int]] = set()
-        # self.hash_length_map:dict[int, int] = dict()
-
-    def can_skip(self, key:RawElemCacheKey)->bool:
-        if ENABLE_COVERED_HASH_CACHE and key in self.covered_hashs:
-            print('[cache-hit] covered')
-            return True
-        return False
-
-    def add_covered(self, key:RawElemCacheKey):
-        if ENABLE_COVERED_HASH_CACHE:
-            self.covered_hashs.add(key)
-
-    def add_failed_by_raw_elems(self, elems:list[OneElem]):
-        if not ENABLE_FAILED_IDXS_CACHE:
-            return
-        idxs = self.get_contained_raw_elems(elems)
-        if len(idxs) == 0:
-            return
-
-        # Maintain minimal failed sets:
-        # - If an existing failed set is already a subset of `idxs`, `idxs` is redundant.
-        # - If some existing failed sets are supersets of `idxs`, replace them with `idxs`.
-        to_remove: list[frozenset[int]] = []
-        for failed_idx_set in self.failed_idxs:
-            if failed_idx_set.issubset(idxs):
-                return
-            if idxs.issubset(failed_idx_set):
-                to_remove.append(failed_idx_set)
-
-        for s in to_remove:
-            self.failed_idxs.discard(s)
-        # print('add failed idxs: ', idxs)
-        self.failed_idxs.add(idxs)
-
-    def covers_failed(self, elems:list[OneElem])->bool:
-        if not ENABLE_FAILED_IDXS_CACHE:
-            return False
-        idxs = self.get_contained_raw_elems(elems)
-        # return idxs in self.failed_idxs
-        if len(idxs) == 0:
-            return False
-        for failed_idx_set in self.failed_idxs:
-            if failed_idx_set == idxs:
-                print('[cache-hit] failed')
-                return True
-        return False
-           
-    def covers_failed_ori(self, elems:list[OneElem])->bool:
-        idxs = self.get_contained_raw_elems(elems)
-        # return idxs in self.failed_idxs
-        if len(idxs) == 0:
-            return False
-        for failed_idx_set in self.failed_idxs:
-            if failed_idx_set.issubset(idxs):
-                return True
-        return False
-             
-
-    def get_contained_raw_elems(self, elems:list[OneElem])->frozenset[int]:
-        idxs = set()
-        for elem in elems:
-            raw_idx = elem.raw_index
-            if raw_idx is not None:
-                idxs.add(raw_idx)
-        return frozenset(idxs)
-
     @staticmethod
     def get_raw_idxs_from_elems(elems:list[OneElem])->tuple[RawElemCacheKey, int]:
         idxs = []
@@ -769,53 +371,7 @@ def sort_and_get_continuous_groups(nums:set[int]) -> list[list[int]]:
         continuous_groups.append(cur_group)
     return continuous_groups
 
-def get_node_type_common_stack_size(
-    param_types:list[str],
-    result_types:list[str]
-):
-    common_stack_size = 0
-    for ty1, ty2 in zip(param_types, result_types):
-        if ty1 == ty2:
-            common_stack_size += 1
-        else:
-            break
-    return common_stack_size
 
-
-def reset_stack_change(
-    raw_gen_types:list[str],
-    raw_taken_types:list[str],
-    # raw_taken_num:int,
-    taken_from_any_cnt:int=0,
-    taken_by_any_cnt:int=0,
-    force_common_size:Optional[int]=None
-):  
-    actual_taken_types = raw_taken_types[taken_from_any_cnt:]
-    actual_gen_types = raw_gen_types[taken_by_any_cnt:]
-    # if 'any' in actual_gen_types
-        # common_size = 0
-    if force_common_size is not None:
-        common_size = force_common_size
-    else:
-        common_size = get_node_type_common_stack_size(
-            param_types=actual_taken_types,
-            result_types=actual_gen_types
-        )
-    
-    return StackChange(
-        [gen_type_for_graph(ty) for ty in actual_taken_types[common_size:]],
-        actual_gen_types[common_size:]
-    )
-
-def gen_new_group_by_stack_change( stack_change:StackChange, cur_elem_groups, group_idx:int) -> MutElemGroup:
-    
-    if last_is_unreachable_like(cur_elem_groups, group_idx) \
-        or next_group_is_unreachable(cur_elem_groups, group_idx):
-        return MutElemGroup([])
-    else:
-        new_elems = gen_replacement_by_stack_change(stack_change)
-        new_group = MutElemGroup(new_elems)
-        return new_group
 
 def gen_replacement_by_stack_change(stack_change:StackChange):
     new_elems:list[OneElem] = []
@@ -890,14 +446,6 @@ def infer_mini_stack_change(
     to_drop_types = list(ori_stack[max_prefix_len:])
     return to_drop_types, to_gen_types
 
-def change_cost(
-    ori_stack:Sequence[str],
-    cur_stack:Sequence[str]
-):
-    common_length = get_seq_common_prefix_len(ori_stack, cur_stack)
-    drop_num = len(ori_stack) - common_length
-    gen_num = len(cur_stack) - common_length
-    return drop_num + gen_num
 
 def get_seq_common_prefix_len(
     seq1:Sequence,
@@ -913,22 +461,6 @@ def get_seq_common_prefix_len(
 
 
 
-def cur_is_more_naive(
-    raw_elems: list[OneElem],
-    cur_elems: list[OneElem]
-):
-    cur_elem_length = sum(elem.get_length() for elem in cur_elems)
-    raw_elem_length = sum(elem.get_length() for elem in raw_elems)
-    if cur_elem_length < raw_elem_length:
-        return True
-    cur_trival_inst_num = sum(1 for elem in cur_elems if elem.is_one_const_or_drop())
-    raw_trival_inst_num = sum(1 for elem in raw_elems if elem.is_one_const_or_drop())
-    if cur_trival_inst_num > raw_trival_inst_num:
-        return True
-    return False
-
-
-
 def cur_is_more_naive_v2(
     raw_elems: list[OneElem],
     cur_elems: list[OneElem]
@@ -940,11 +472,6 @@ def cur_is_more_naive_v2(
     cur_non_trival_inst_num = sum(1 for elem in cur_elems if not elem.is_one_const_or_drop())
     raw_non_trival_inst_num = sum(1 for elem in raw_elems if not elem.is_one_const_or_drop())
     if cur_non_trival_inst_num < raw_non_trival_inst_num:
-        return True
-    return False
-    cur_trival_inst_num = sum(1 for elem in cur_elems if elem.is_one_const_or_drop())
-    raw_trival_inst_num = sum(1 for elem in raw_elems if elem.is_one_const_or_drop())
-    if cur_trival_inst_num > raw_trival_inst_num:
         return True
     return False
 

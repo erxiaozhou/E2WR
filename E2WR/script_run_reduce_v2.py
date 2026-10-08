@@ -3,8 +3,6 @@
 import argparse
 import cProfile
 import os
-import resource
-import sys
 import time
 from pathlib import Path
 from typing import Callable
@@ -18,16 +16,14 @@ from pstats import SortKey
 from reduction_analysis.TopReducer.Reducer import FrameworkReducerDirSystem
 from reduction_analysis.FrameWorkReducerCfg import FrameWorkReducerCfg
 from reduction_analysis.TopReducer.MultiPassReducer import get_framework_reducer
-from reduction_analysis.CommandReducePass import CommandReducePassFactory, WASM_OPT_CMDName, WASM_MUTATE_CMDName
 from reduction_analysis.ReducerCommonConfig import FRAMEWORK_IN_DEBUG, PASS_TIMEOUT
 from reduction_analysis.ReductionDescUtil.ReduceLimit import ReduceLimit
 from reduction_analysis.ReducerPassUtil.ReducePass import ReduceAndCheckPass
-from file_util import check_dir, get_logger
+from file_util import get_logger
 from reduction_analysis.ReducerPassUtil.ZReducerPass import  ZReducerType
 import random
 import numpy as np
 from reduction_analysis.ReduceUtil.ReduceInsts_cfg_util import ONE_V6_CFG
-import reduction_analysis.ReduceUtil.ReduceInsts_V5_util as cache_cfg
 from reduction_analysis.callsite_reduction import CallsiteRepStrategy
 # FinalPolishPass
 # from 
@@ -43,32 +39,19 @@ def parse_args():
     parser.add_argument('--time-limit', '-t', type=int, default=9000, help='Time limit(seconds), default 3600 seconds')
     parser.add_argument('--pass-timeout', type=int, default=PASS_TIMEOUT, help=f'Single pass execution timeout(seconds), default {PASS_TIMEOUT} seconds')
     parser.add_argument('--debug', '-d', action='store_true', default=False, help='Enable debug mode')
-    parser.add_argument('--common-passes', action='store_true', help='Use common passes')
-    parser.add_argument('--reward-strategy', choices=['size', 'speed', 'cur_speed', 'mean_speed', 'non_neg_cur_speed', 'non_neg_mean_speed'], default='size', 
-                      help='Reward calculation strategy: size(file size), cur_speed(current speed), mean_speed(average speed), non_neg_cur_speed(non-negative reward with current speed), non_neg_mean_speed(non-negative reward with average speed), default is size')
     # some parameters for option combinations
-    parser.add_argument('--full_std', action='store_true', help='Use full std pass')
-    parser.add_argument('--use_perese_replace_ours', action='store_true', help='Use full std pass with perese replace ours')
-    parser.add_argument('--full_remove_uur', action='store_true', help='Use full std pass with remove unused elem')
+    parser.add_argument('--full_remove_uur', action='store_true', help='Disable the unused-def reducer (UUR) pass')
     parser.add_argument('--full_wo_update_probdd_p0', action='store_true', help='Use full std pass with probdd p0')
     
     parser.add_argument('--full_wo_final_polish', action='store_true', help='Use full std pass with final polish')
-    parser.add_argument('--full_wo_common_passes', action='store_true', help='Use full std pass without common passes')
     parser.add_argument('--disable_fine_ns', action='store_true', help='disable fine grained in NS')
-    parser.add_argument('--disable_ddg_split', action='store_true', help='disable DDG splitting in NS')
-    parser.add_argument('--disable_dd', action='store_true', help='disable data dependency in NS')
     parser.add_argument('--disable_whole_dd', action='store_true', help='disable the whole DD in NS')
-    parser.add_argument('--disable_mini_rep', action='store_true', help='disable minimal replacement')
-    parser.add_argument('--no_VP', action='store_true', help='disable VP usage in NS')
-    parser.add_argument('--disable-covered-cache', action='store_true', help='Disable covered_hash exact-dedup cache in applier (RawElemsCache)')
-    parser.add_argument('--disable-failed-cache', action='store_true', help='Disable failed_idxs cross-phase failure memory (covers_failed uses == match)')
     parser.add_argument('--disable_polish_return', action='store_true', help='disable polish return type in final polish')
     parser.add_argument('--disable_inline', action='store_true', help='disable inline in final polish')
     parser.add_argument('--disable_size_polish', action='store_true', help='disable size polish in final polish')
     # Add random seed parameter
     parser.add_argument('--seed', type=int, default=42, help='Random seed for controlling randomness, default is None (use system time)')
     parser.add_argument('--disable_callsite_reduction', action='store_true', help='Do not replace callsite')
-    parser.add_argument('--novp_callsite_reduction', action='store_true', help='Replace callsite without VP')
     # parser.add_argument('--disable_vp_callsite_reduction', action='store_true', help='Do not replace callsite with dumped values')
 # 
     parser.add_argument('--force_inst_mutation', default='disable', help='Temporary file working directory')
@@ -89,44 +72,15 @@ def setup_passes(
     all_passes:list[ReduceAndCheckPass] = []
     work_dir = reducer_cfg.tmp_dir
     
-    cmd_tmp_dir = check_dir(work_dir / 'cmd_passes')
-    
-    if False:
-        for name in WASM_MUTATE_CMDName:
-            all_passes.append(CommandReducePassFactory.create_reduce_and_check_pass(
-                name=name,
-                tmp_dir=cmd_tmp_dir,
-                timeout=reducer_cfg.pass_timeout,
-                oracle_func=oracle_func,
-                require_smaller_size=True,
-                use_multi_run_cmd=True
-            ))
-            # *WASM_OPT_CMDName
-        for name in WASM_OPT_CMDName:
-            all_passes.append(CommandReducePassFactory.create_reduce_and_check_pass(
-                name=name,
-                tmp_dir=cmd_tmp_dir,
-                timeout=reducer_cfg.pass_timeout,
-                oracle_func=oracle_func,
-                require_smaller_size=True,
-                use_multi_run_cmd=False
-            ))
     # 
-    to_append_reducer_types = []
-    if not reducer_cfg.use_perses_replace_nodeshrink:
-        to_append_reducer_types.append(ZReducerType.NODE_SHRINK)
-    else:
-        raise ValueError("Perses replace nodeshrink is not supported in this configuration")
+    to_append_reducer_types = [ZReducerType.NODE_SHRINK]
     if reducer_cfg.use_remove_unused_elem:
         to_append_reducer_types.append(ZReducerType.UNUSED_DEF)
     if reducer_cfg.use_final_polish:
         to_append_reducer_types.append(ZReducerType.FINAL_POLISH)
-    # 
-    # novp_callsite_reduction
+    #
     if args.disable_callsite_reduction:
         cr_strategy = CallsiteRepStrategy.DISABLE
-    elif args.novp_callsite_reduction:
-        cr_strategy = CallsiteRepStrategy.TY_ONLY
     else:
         cr_strategy = CallsiteRepStrategy.VP
     cr_strategy = CallsiteRepStrategy.TY_ONLY
@@ -154,17 +108,7 @@ def main():
     # Apply V6 reducer toggles (global config used by NodeShrink/V6 pipeline)
     if args.disable_fine_ns:
         ONE_V6_CFG.disable_fine_ns()
-    ONE_V6_CFG.enable_ddg_split = not args.disable_ddg_split
-    ONE_V6_CFG.enable_dd = not args.disable_dd
     ONE_V6_CFG.enable_whole_dd = not args.disable_whole_dd
-    ONE_V6_CFG.enable_minimal_replacement = not args.disable_mini_rep
-    ONE_V6_CFG.use_VP = not args.no_VP
-    ONE_V6_CFG.use_VP = False
-    # Cache toggles (must assign on the module so RawElemsCache methods see them)
-    if args.disable_covered_cache:
-        cache_cfg.ENABLE_COVERED_HASH_CACHE = False
-    if args.disable_failed_cache:
-        cache_cfg.ENABLE_FAILED_IDXS_CACHE = False
     #
     force_inst_mutation = args.force_inst_mutation.lower()
     if force_inst_mutation != 'disable':
@@ -177,19 +121,10 @@ def main():
         else:
             raise ValueError(f"Invalid value for --force_inst_mutation: {args.force_inst_mutation}. Valid options are 'disable', 'p3', 'core', 'rev'.")
     
-    # 
+    #
     print(
         "V6 cfg applied: "
-        f"enable_fine_ns={ONE_V6_CFG.enable_fine_ns}, "
-        f"enable_ddg_split={ONE_V6_CFG.enable_ddg_split}, "
-        f"enable_dd={ONE_V6_CFG.enable_dd}, "
-        f"enable_whole_dd={ONE_V6_CFG.enable_whole_dd}",
-        f'enable_minimal_replacement={ONE_V6_CFG.enable_minimal_replacement}'
-    )
-    print(
-        "Cache cfg applied: "
-        f"covered_cache={cache_cfg.ENABLE_COVERED_HASH_CACHE}, "
-        f"failed_cache={cache_cfg.ENABLE_FAILED_IDXS_CACHE}"
+        f"enable_whole_dd={ONE_V6_CFG.enable_whole_dd}"
     )
     # Set random seed
     random.seed(args.seed)
@@ -241,8 +176,6 @@ def main():
     print(f"Time limit: {args.time_limit} seconds")
     print(f'Reducer Framework Configuration: {framework_reducer_cfg}')
    
-   
-    print(f"Reward calculation strategy: {args.reward_strategy}")
     print(f"Random seed: {args.seed if args.seed is not None else 'not set (use system time)'}")
     print("==========================\n")
     # assert args.reducer_type == 'random'
@@ -254,7 +187,6 @@ def main():
             work_dir_system=work_dir_system,
             reduce_limit=ReduceLimit(
                 timeout=args.time_limit,
-                max_passes=None
             ),
             passes=passes,
     )
@@ -302,32 +234,12 @@ def get_framework_cfg(args, work_dir_system:FrameworkReducerDirSystem):
     framework_reducer_cfg: FrameWorkReducerCfg = FrameWorkReducerCfg.default_cfg(
         tmp_dir=work_dir_system.tmp_dir,
         log_dir=work_dir_system.log_base_dir,
-        pass_timeout=args.pass_timeout
         )
-    if args.full_std:
-        pass
-    elif args.use_perese_replace_ours:
-        framework_reducer_cfg.use_perses_replace_nodeshrink = True
-
-    elif args.full_remove_uur:
+    if args.full_remove_uur:
         framework_reducer_cfg.use_remove_unused_elem = False
     elif args.full_wo_final_polish:
         framework_reducer_cfg.use_final_polish = False
-    elif args.full_wo_common_passes:
-        framework_reducer_cfg.common_passes = False
     return framework_reducer_cfg
 
-def set_memory_limit(memory_in_gb=32):
-    soft_limit, hard_limit = resource.getrlimit(resource.RLIMIT_AS)
-    memory_limit = memory_in_gb * 1024 * 1024 * 1024
-    
-    try:
-        resource.setrlimit(resource.RLIMIT_AS, (memory_limit, hard_limit))
-        print(f"Limit memory {memory_in_gb} GB")
-    except ValueError as e:
-        print(f"Failed to set memory limit: {e}")
-        sys.exit(1)
-
 if __name__ == "__main__":
-    # set_memory_limit(32)
     exit(main())

@@ -1,5 +1,5 @@
 from reduction_analysis.ASTInfo.AST import ASTNodeLoc
-from reduction_analysis.Instrumentation.ValueProbeInstrument import ValueProbeManager, FailedOracleAfterProbeException
+from reduction_analysis.Instrumentation.ValueProbeInstrument import ValueProbeManager
 from reduction_analysis.ParserModification import WMSnapshot
 
 
@@ -7,20 +7,6 @@ def get_un_exec_func_idxs(
     input_snapshot:WMSnapshot,
     instrument_manager: ValueProbeManager,
 )->set[int]:
-    start_idx = 0x1000
-    for i in range(0):
-        try:
-            un_exec_func_idxs = instrument_manager.instrument_and_get_function_level_whether_exec(
-                snapshot=input_snapshot,
-                start_offset=start_idx+i*0x2000,
-            )
-            return un_exec_func_idxs
-        except FailedOracleAfterProbeException:
-            print('Oracle check failed after probe instrumentation. Retrying with next offset... Current test time: ', i)
-        except Exception as e:
-            print(f'Error during instrumentation or oracle check: {e}')
-            # return set()
-            break
     return get_un_exec_func_idxs_by_freq(
         input_snapshot=input_snapshot,
         instrument_manager=instrument_manager

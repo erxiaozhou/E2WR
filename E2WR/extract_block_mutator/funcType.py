@@ -1,8 +1,12 @@
-from util.encoding_util import read_next_leb_num
-import re
-from typing import Sequence
-import leb128
-from WasmInfoCfg import val_type_strs_list
+"""funcType —— 兼容壳（实际实现见 typeSys2.FTy）。
+
+2026-09-22 类型系统重建模（B-2）：funcType 退化为四元组+terminal 值类型的
+包装，旧的 _add_core1/_add_core2 尾部消解特判由 typeSys2.compose 统一。
+对外保持原属性面：param_types/result_types（list 视图）、determined_return_ty
+（映射 terminal 位）、__add__（消解失败仍抛 FuncTypeCatException）。
+'any' 通配为旧死路径（构造校验本就拒绝），不复刻。
+"""
+from .typeSys2 import FTy, compose
 
 
 byte_val2type_str = {
@@ -21,7 +25,7 @@ type_str2byte_val = {
     'f64': 0x7C,
     'v128': 0x7B,
     'funcref': 0x70,
-    'externref':0x6F
+    'externref': 0x6F
 }
 
 
@@ -29,112 +33,90 @@ class FuncTypeCatException(Exception):
     pass
 
 
-func_type_pattern = re.compile(r'^(?:\(param\s*([^\)]*?)\))?\s*(?:\(result\s*([^\)]*?)\))?$')
+import re
+import leb128
 
+func_type_pattern = re.compile(
+    r'^(?:\(param\s*([^\)]*?)\))?\s*(?:\(result\s*([^\)]*?)\))?$')
 
-def check_result_can_support_para_wc_len(cur_ops:Sequence[str], req_ops:Sequence[str]) -> bool:
-    
-    to_consider_len = min(len(cur_ops), len(req_ops))
-    for i in range(to_consider_len):
-        cur_op = cur_ops[-i-1]
-        req_op = req_ops[-i-1]
-        if cur_op != req_op and req_op != 'any':
-            return False
-    return True
-
-
-def check_result_can_support_param(cur_ops:list[str], req_ops:list[str]) -> bool:
-    # cur ops : the operands on the stack
-    # req ops : the operands required by the instruction / something else
-    can_support = True
-    if len(cur_ops) < len(req_ops):
-        can_support = False
-    else:
-        to_compare_num = len(req_ops)
-        for i in range(to_compare_num):
-            to_comare_idx = - i - 1
-            cur_op = cur_ops[to_comare_idx]
-            req_op = req_ops[to_comare_idx]
-            if cur_op != req_op and req_op != 'any':
-                can_support = False
-                break
-    return can_support
 
 class funcType:
-    def __init__(self, param_types, result_types, determined_return_ty:bool=False) -> None:
-        if not isinstance(param_types, list):
-            param_types = list(param_types)
-        if not isinstance(result_types, list):
-            result_types = list(result_types)
+    __slots__ = ('fty',)
 
+    def __init__(self, param_types, result_types,
+                 determined_return_ty: bool = False) -> None:
+        if not isinstance(param_types, (list, tuple)):
+            param_types = list(param_types)
+        if not isinstance(result_types, (list, tuple)):
+            result_types = list(result_types)
+        from WasmInfoCfg import val_type_strs_list
         for ty in param_types:
             if ty not in val_type_strs_list:
                 raise Exception(f'{ty} not in {val_type_strs_list}')
         for ty in result_types:
             if ty not in val_type_strs_list:
                 raise Exception(f'{ty} not in {val_type_strs_list}')
-        self._param_types = param_types
-        self._result_types = result_types
+        # funcType 恒非多态（多态位只属于 typeReq 需求侧）
+        self.fty = FTy(tuple(param_types), tuple(result_types),
+                       False, False, bool(determined_return_ty))
 
-        self.determined_return_ty = determined_return_ty
+    @property
+    def param_types(self):
+        return list(self.fty.params)
+
+    @property
+    def result_types(self):
+        return list(self.fty.results)
+
+    @property
+    def determined_return_ty(self):
+        return self.fty.terminal
+
     @classmethod
     def from_strs(cls, param_types, result_types):
         return cls(param_types, result_types)
 
-    @property
-    def param_types(self):
-        return self._param_types
-    @property
-    def result_types(self):
-        return self._result_types
+    def __add__(self, other):
+        c = compose(self.fty, other.fty)
+        if c is None:
+            raise FuncTypeCatException('param2 does not match result1')
+        return funcType(c.params, c.results, c.terminal)
 
-    @param_types.setter
-    def param_types(self, value):
-        raise Exception('param_types is read only')
+    def __repr__(self):
+        return (f'{self.__class__.__name__}'
+                f'({self.param_types}, {self.result_types})')
 
-    @result_types.setter
-    def result_types(self, value):
-        raise Exception('param_types is read only')
-    
-    def __add__(self, __value):
-        return _add_core1(self, __value)
-
-    def __repr__(self) -> str:
-        return f'{self.__class__.__name__}({self.param_types}, {self.result_types})'
-
-    def __eq__(self, __value: object) -> bool:
-        if self is __value:
+    def __eq__(self, other):
+        if self is other:
             return True
-        assert isinstance(__value, funcType)
-        return self.param_types == __value.param_types and self.result_types == __value.result_types and self.determined_return_ty == __value.determined_return_ty
+        if not isinstance(other, funcType):
+            return NotImplemented
+        return self.fty == other.fty
 
-    def __hash__(self) -> int:
-        return hash((tuple(self.param_types), tuple(self.result_types), self.determined_return_ty))
+    def __hash__(self):
+        return hash(self.fty)
 
     def copy(self):
-        return funcType(self.param_types, self.result_types, self.determined_return_ty)
+        return funcType(self.fty.params, self.fty.results, self.fty.terminal)
 
     @property
     def as_bytes(self):
         r = bytearray([0x60])
-        param_byte_vals = [type_str2byte_val[ty] for ty in self.param_types]
-        raw_param_ba = bytearray(param_byte_vals)
-        param_ba = leb128.u.encode(len(raw_param_ba)) + raw_param_ba
-        result_byte_vals = [type_str2byte_val[ty] for ty in self.result_types]
-        raw_result_ba = bytearray(result_byte_vals)
-        result_ba = leb128.u.encode(len(raw_result_ba)) + raw_result_ba
+        param_byte_vals = [type_str2byte_val[ty] for ty in self.fty.params]
+        param_ba = leb128.u.encode(len(param_byte_vals)) + bytearray(param_byte_vals)
+        result_byte_vals = [type_str2byte_val[ty] for ty in self.fty.results]
+        result_ba = leb128.u.encode(len(result_byte_vals)) + bytearray(result_byte_vals)
         r.extend(param_ba)
         r.extend(result_ba)
         return r
+
     @classmethod
     def from_dict(cls, d):
         return cls(d['param'], d['result'])
 
     @classmethod
-    def from_str(cls, s:str):
-        s = str(s)
-        s = s.split(';;')[0]
-        s = s.strip()
+    def from_str(cls, s: str):
+        s = str(s).split(';;')[0].strip()
         r = func_type_pattern.findall(s)
         if len(r) == 0:
             raise Exception(f'cannot parse funcType from {s}')
@@ -145,69 +127,7 @@ class funcType:
 
 
 def match_func_type(fty1: funcType, fty2: funcType):
-    if fty1.result_types != fty2.result_types:
-        return False
-    if len(fty1.param_types) != len(fty2.param_types):
-        return False
-    param_match = True
-    for p1, p2 in zip(fty1.param_types, fty2.param_types):
-        if p1 != p2 and ('any' not in [p1, p2]):
-            param_match = False
-            break
-    return param_match
-
-
-def _add_core1(val1, val2):
-    param2 = val2.param_types
-    result1 = val1.result_types
-    param2_len = len(param2)
-    result1_len = len(result1)
-    exchange_num = 0
-    min_len = min(param2_len, result1_len)
-    if val1.determined_return_ty:
-        final_param = val1.param_types
-    else:
-        while min_len > exchange_num:
-            if param2[param2_len-1-exchange_num] == result1[result1_len-1-exchange_num] or param2[param2_len-1-exchange_num] == 'any':
-                exchange_num += 1
-            else:
-                raise FuncTypeCatException('param2 does not match result1')
-        
-        final_param = param2[:param2_len-exchange_num] + val1.param_types
-    # assert len( param2[:param2_len-exchange_num]) == 0 or len(result1[:result1_len-exchange_num]) == 0
-    if val2.determined_return_ty :
-        final_result = val2.result_types
-    else:
-        final_result = result1[:result1_len-exchange_num] + val2.result_types
-    is_determined_return_ty = val2.determined_return_ty
-    return funcType(final_param, final_result, is_determined_return_ty)
-
-
-def _add_core2(
-    val1:funcType, 
-    val2:funcType,
-    v1_is_eg=False,
-    ):
-    param2 = val2.param_types
-    result1 = val1.result_types
-    param2_len = len(param2)
-    result1_len = len(result1)
-    exchange_num = 0
-    min_len = min(param2_len, result1_len)
-    while min_len > exchange_num:
-        if param2[param2_len-1-exchange_num] == result1[result1_len-1-exchange_num] or param2[param2_len-1-exchange_num] == 'any':
-            exchange_num += 1
-        else:
-            raise FuncTypeCatException('param2 does not match result1')
-    
-    final_param = param2[:param2_len-exchange_num] + val1.param_types
-    # assert len( param2[:param2_len-exchange_num]) == 0 or len(result1[:result1_len-exchange_num]) == 0
-    final_result = result1[:result1_len-exchange_num] + val2.result_types
-    if v1_is_eg:
-        # final_result =  val2.result_types
-        final_param = val1.param_types
-    else:
-        
-        final_param = param2[:param2_len-exchange_num] + val1.param_types
-    is_determined_return_ty = val2.determined_return_ty
-    return funcType(final_param, final_result, is_determined_return_ty)
+    """精确相等判定（旧实现去掉 'any' 通配后的语义；旧调用方仅为
+    check_ftype_match_req 内部，已由 typeSys2.match 取代）。"""
+    return fty1.fty.params == fty2.fty.params \
+        and fty1.fty.results == fty2.fty.results

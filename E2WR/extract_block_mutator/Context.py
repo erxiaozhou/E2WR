@@ -267,12 +267,6 @@ class Context(InfoLoader):
         return self.context_variables is context.context_variables
 
 
-def generate_context_by_insert_label_reuse_data(context: Context, label: list[str]):
-    assert context.label_types is not None
-    label_types = context.label_types.copy()
-
-    label_types.insert(0, label)
-    return Context(context.context_variables, label_types)
 
 
 def generate_context_by_out_layers_reuse_data(context: Context, out_layers: list[list[str]]):

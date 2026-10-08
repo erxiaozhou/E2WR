@@ -5,12 +5,6 @@ from extract_block_mutator.encode.NGDataPayload import DataPayloadwithName
 
 
 
-def get_globaltype_attr(globaltype_payload, attr_name):
-    if attr_name == 'val_type':
-        return globaltype_payload.data['val_type']
-    if attr_name == 'mut':
-        return globaltype_payload.data['mut']
-    raise Exception('Not supported global type attr')
 
 
 def get_global_attr(global_payload, attr_name):

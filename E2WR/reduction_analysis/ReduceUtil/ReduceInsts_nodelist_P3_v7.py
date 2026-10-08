@@ -1,4 +1,3 @@
-from traceback import print_exc
 import networkx as nx
 from typing import Optional
 from reduction_analysis.StackState import StackState, StackStatus, sstate1_support_sstate2
@@ -14,14 +13,12 @@ def reduce_insts_p3_graph_based_v7(
     reduce_applier: OneNodeListReducerApplier,
     rest_time:Optional[float],
     elems: list[OneElem],
-    must_contain_cf: bool = False
 ) ->list[OneElem]:
     reducer = StackStateGraphReducer(
         ctx=ctx,
         mutation_applier=reduce_applier,
         elems=elems,
         rest_time=rest_time,
-        must_contain_cf=must_contain_cf
     )
     reducer.reduce_graph_based()
     return reducer.current_elems
@@ -35,7 +32,6 @@ class StackStateGraphReducer:
         mutation_applier: OneNodeListReducerApplier,
         elems: list[OneElem],
         rest_time: Optional[float],
-        must_contain_cf: bool,
     ):
         self.ctx = ctx
         node_list_type = ctx.node_type
@@ -56,7 +52,6 @@ class StackStateGraphReducer:
         self.mutation_applier = mutation_applier
         self.DEBUG: bool = ctx.DEBUG
         self.raw_elems = elems
-        self.must_contain_cf = must_contain_cf
         if rest_time is not None:
             self.expected_end_time = time.time() + rest_time
         else:
@@ -123,9 +118,6 @@ class StackStateGraphReducer:
         normalized.sort(key=lambda seq: (len(seq), seq[0]))
         return normalized
 
-    def _seq_contains_cf(self, seq: list[int]) -> bool:
-        return bool(set(seq) & self.cf_elem_idxs)
-
     def _seq_contains_non_unreachable_cf(self, seq: list[int]) -> bool:
         return bool(set(seq) & self.cf_non_unreachable_elem_idxs)
 
@@ -143,24 +135,6 @@ class StackStateGraphReducer:
         except ValueError:
             return False
         return pos < len(current_states) and current_states[pos].status == StackStatus.ANY
-
-    def _ignore_idxs_contain_any_start_seq(
-        self,
-        to_ignore_orig_idxs: set[int],
-        current_states: list[StackState],
-        kept_orig_indices: list[int],
-    ) -> bool:
-        sorted_idxs = sorted(to_ignore_orig_idxs)
-        runs: list[list[int]] = []
-        for x in sorted_idxs:
-            if runs and x == runs[-1][-1] + 1:
-                runs[-1].append(x)
-            else:
-                runs.append([x])
-        return any(
-            self._seq_starts_with_any_status(run, current_states, kept_orig_indices)
-            for run in runs
-        )
 
     def _split_local_search_ranges(self, kept_orig_indices: list[int]) -> list[tuple[int, int]]:
         ranges: list[tuple[int, int]] = []
@@ -195,11 +169,10 @@ class StackStateGraphReducer:
             reducible_sequences.extend(
                 self.graph_helper.extract_reducible_sequences(G, cycles)
             )
-        if True:
-            reducible_sequences = [
-                seq for seq in reducible_sequences
-                if self._seq_starts_with_any_status(seq, current_states, kept_orig_indices)
-            ]
+        reducible_sequences = [
+            seq for seq in reducible_sequences
+            if self._seq_starts_with_any_status(seq, current_states, kept_orig_indices)
+        ]
         return self._normalize_sequences(reducible_sequences)
 
     def _collect_global_reducible_sequences_with_cf(
@@ -257,7 +230,7 @@ class StackStateGraphReducer:
         if len(to_ignore_orig_idxs) == 0:
             return True
 
-        result = self.try_replace_elems(to_ignore_orig_idxs, source_tag='LOCAL')
+        result = self.try_replace_elems(to_ignore_orig_idxs)
         if result:
             unreplaced_cycle_positions.difference_update(to_replace_cycle_positions)
             self.has_any_success = True
@@ -277,9 +250,6 @@ class StackStateGraphReducer:
                 list(range(len(batch))),
                 expected_end_time=self.expected_end_time,
             )
-            if self.DEBUG:
-                print(f"P3 local batch minimal config: {minimal_config}")
-
             return set(range(len(batch))) - self.unreplaced_cycle_positions
         finally:
             self.current_cycle_batch = None
@@ -340,32 +310,22 @@ class StackStateGraphReducer:
             collect_times_in_func += 1
             # print(f"[P3DBG] global reducible seqs collected in {time.time() - t0_:.2f}s: [{collect_times_in_func}] {len((reducible_sequences))} seq(s)")
             if not reducible_sequences:
-                if self.DEBUG:
-                    print(f"No global control-flow cycles found, reduce end, try {collect_times_in_func} times, success {collect_times_in_func-1} times")
                 return
 
             all_failed = True
             for seq in reducible_sequences:
                 if self._is_timeout():
                     return
-                if self.try_replace_elems(set(seq), source_tag='GLOBAL'):
+                if self.try_replace_elems(set(seq)):
                     self.has_any_success = True
                     all_failed = False
                     break
             if all_failed:
                 return
     
-    def try_replace_elems(self, to_ignore_orig_idxs: set[int], source_tag='N') -> bool:
+    def try_replace_elems(self, to_ignore_orig_idxs: set[int]) -> bool:
         all_removed_elem_idxs = to_ignore_orig_idxs | self.reduced_elem_idxs
         mutation = {idx:[] for idx in all_removed_elem_idxs}
-        # 
-        to_mutate_elems = [self.raw_elems[idx] for idx in to_ignore_orig_idxs]
-        covered_by_cache = self.ctx.raw_elems_cache.covers_failed(to_mutate_elems)
-        if covered_by_cache:
-            if self.DEBUG:
-                print(f"Skip trying removal of elems at idxs {to_ignore_orig_idxs} due to known failure")
-            return False
-        # 
         result = self.mutation_applier.gen_replacement_by_elems_and_test_by_mutation(
             ctx=self.ctx,
             raw_elems=self.raw_elems,
@@ -384,9 +344,6 @@ class StackStateGraphReducer:
 
         if result:
             self.reduced_elem_idxs.update(to_ignore_orig_idxs)
-        else:
-            if not covered_by_cache:
-                self.ctx.raw_elems_cache.add_failed_by_raw_elems(to_mutate_elems)
         return result
 
     def reduce_graph_based(self) -> set[int]:
@@ -450,15 +407,11 @@ class StackStateGraphHelper:
 
     def extract_reducible_sequences(self, G: nx.MultiDiGraph, cycles: list[list[int]]) -> list[list[int]]:
         reducible_sequences = []
-        if self.DEBUG:
-            print(f"Processing {len(cycles)} detected cycles")
         for cycle in cycles:
             if not cycle:
                 continue
             inst_indices = self.extract_instruction_indices_from_cycle(G, cycle)
             if inst_indices and self.is_continuous_sequence(inst_indices):
                 reducible_sequences.append(inst_indices)
-        if self.DEBUG:
-            print(f"Final reducible sequences: {reducible_sequences}")
         return reducible_sequences
 

@@ -1,0 +1,18 @@
+[package]
+name = "e2wr"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "e2wr"
+path = "src/main.rs"
+
+[dependencies]
+e2wr-ir = { path = "../e2wr-ir" }
+e2wr-dd = { path = "../e2wr-dd" }
+e2wr-pass = { path = "../e2wr-pass" }
+anyhow.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

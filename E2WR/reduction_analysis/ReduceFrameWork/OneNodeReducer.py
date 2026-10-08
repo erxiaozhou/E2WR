@@ -1,5 +1,4 @@
 from extract_block_mutator.WasmParser import get_parser_from_wasm_path
-from reduction_analysis.Instrumentation.ValueProbeInstrument import ValueProbeManager
 from ..ASTInfo.AST import ASTINode, BlockNode, IfNode, InstsNode, LoopNode, NodeList
 from ..ASTState import ASTState
 from typing import Optional
@@ -16,10 +15,6 @@ from reduction_analysis.ReduceUtil.RewritingUtil.OnlyInstSnapshotRewriter import
 from ..ReduceUtil.ReduceInsts_V9 import reduce_node_list_by_insts_v9
 from .ASTNodePool import ToReduceTask, OneCFNodeReduceTask, NodeListsReduceTask
 
-class SkipStatus(Enum):
-    NO_SKIP = 0
-    PARTIAL_SKIP = 1
-    FULL_SKIP = 2
 
 class NodeReducer:
     def __init__(
@@ -28,12 +23,10 @@ class NodeReducer:
         node_rewriter: NodeRewriter,
         DEBUG: bool,
         logger: Optional[Logger],
-        instrument_manager: Optional[ValueProbeManager] = None,
     ):
         self.DEBUG = DEBUG
         self.node_rewriter = node_rewriter
         self.logger = logger
-        self.instrument_manager = instrument_manager
 
     def try_one_node(
         self,
@@ -111,7 +104,6 @@ class NodeReducer:
             DEBUG=self.DEBUG,
             op_param=op_param,
             snapshot_rewriter=snapshot_rewriter,
-            vp_manager=self.instrument_manager,
             rest_time=rest_time,
         )
         return result, gen_nodes

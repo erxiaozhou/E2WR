@@ -2,8 +2,6 @@ from typing import Optional, Union
 from enum import Enum
 
 
-class ReduceResultType(Enum):
-    UNKNOWN = 0
 
 
 class ExecStatus(Enum):
@@ -12,13 +10,6 @@ class ExecStatus(Enum):
     TIMEOUT = 2
 
 
-def determine_exec_status_from_run_cmd_output(run_cmd_output: dict) -> ExecStatus:
-    if run_cmd_output['timeout_occurred']:
-        return ExecStatus.TIMEOUT
-    elif run_cmd_output['returncode'] != 0:
-        return ExecStatus.EXEC_FAILED
-    else:
-        return ExecStatus.SUCCESS
 
 
 class ReduceProcessStatus(Enum):

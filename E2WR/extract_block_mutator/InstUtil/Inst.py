@@ -18,7 +18,6 @@ class Inst:
 
     def copy(self):
         raise DeprecationWarning('To remove')
-        return Inst(self.opcode_text, self.imm_part)
 
 
 class NoImmInst(Inst):
@@ -42,9 +41,6 @@ class NoImmInst(Inst):
         return hash(self.opcode_text)
 
 
-def is_if_inst(inst:Inst):
-    op_text = inst.opcode_text
-    return op_text == 'if' 
 
 blocktype_ops = {'block', 'loop', 'if'}
 def imm_is_blocktpye(inst:Inst):

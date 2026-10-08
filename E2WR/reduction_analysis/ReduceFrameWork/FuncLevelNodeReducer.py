@@ -4,7 +4,6 @@ from reduction_analysis.ReduceUtil.RewritingUtil.NodeRewriter import _tmp_check_
 from ..ASTState import ASTState
 from reduction_analysis.ReduceUtil.RewritingUtil.NodeRewriter import NodeRewriter
 from ..ASTInfo.ASTInfo import ASTInfo
-from ..ReduceUtil.ReduceStrategy import SpecificTypeReplacementGen
 from reduction_analysis.ReducerCommonConfig import PASS_TIMEOUT
 from typing import Optional
 from file_util import copy_file
@@ -72,7 +71,7 @@ class FuncLevelNodeReducer:
                 )
                 last_epoch_has_reduced = False
                 while pool:
-                    task= pool.practical_select(max_=1)
+                    task= pool.practical_select()
                     if task is None:
                         break
                     node = task.get_first_node()

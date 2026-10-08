@@ -9,10 +9,10 @@ from .NonInstrumentationInstStrategy import GenSpecificType
 from .NewInstUtil import get_inst_by_require_ty_const_n
 from reduction_analysis.InferStackUtil import infer_stack_types_on_probe_loc
 from reduction_analysis.StackState import StackState
-from ..ASTInfo.AST import ASTINode, ASTNodeLoc, BlockNode, IfNode, InstsNode, LoopNode, func2AST, insts2AST, traverse_ast
+from ..ASTInfo.AST import ASTINode, ASTNodeLoc, BlockNode, IfNode, InstsNode, LoopNode, insts2AST
 from ..ASTState import ASTState
 from reduction_analysis.ReduceUtil.RewritingUtil.NodeRewriter import NodeRewriter
-from typing import Any, Generator, Optional, Union
+from typing import Optional, Union
 from abc import ABC, abstractmethod
 MAX_DEPTH = None
 
@@ -97,55 +97,6 @@ def inst_can_jump_to_here(inst:Inst, cur_depth:int) -> bool:
     return False
 
 
-def idenfity_nodes_can_jump_to_here(
-                 target_node:NodeList,
-                 max_depth:Optional[int]=MAX_DEPTH) -> Generator[ASTINode, None, None]:
-    def process_node(node, depth=0):
-        if max_depth is not None and depth > max_depth:
-            return
-        
-        if isinstance(node, InstsNode) and node.insts:
-            last_inst = node.insts[-1]
-            if inst_can_jump_to_here(last_inst, depth):
-                yield node
-        
-        elif isinstance(node, BlockNode) or isinstance(node, LoopNode):
-            new_depth = depth + 1
-            for sub_node in node.sub_node_list.sub_nodes:
-                yield from process_node(sub_node, new_depth)
-        
-        elif isinstance(node, IfNode):
-            new_depth = depth + 1
-            for sub_node in node.if_sub_node_list.sub_nodes:
-                yield from process_node(sub_node, new_depth)
-            
-            if node.has_else:
-                for sub_node in node.else_sub_node_list.sub_nodes:
-                    yield from process_node(sub_node, new_depth)
-        
-        elif isinstance(node, NodeList):
-            for sub_node in node.sub_nodes:
-                yield from process_node(sub_node, depth)
-    
-    for node in target_node.sub_nodes:
-        yield from process_node(node)
-
-
-
-def _is_all_before_loc(node:ASTINode, loc:ASTNodeLoc):
-    start_idx = node.loc.inst_idx
-    target_pos = loc.inst_idx
-    if start_idx > target_pos:
-        return False
-    end_pos = start_idx + node.get_length()
-    if end_pos <= target_pos:
-        return False
-    return True
-
-def collect_nodes_before_loc(root_node:ASTINode, loc:ASTNodeLoc):
-    nodes = traverse_ast(root_node, lambda x: _is_all_before_loc(x, loc), collect_results=True)
-    return nodes
-
 def is_can_jump_insts_node(insts_node:InstsNode, depth:int):
     if isinstance(insts_node, InstsNode) and insts_node.insts:
         last_inst = insts_node.insts[-1]
@@ -210,37 +161,6 @@ def get_first_jump_back_node(start_node:ASTINode, cur_depth:int=0, max_depth:Opt
         return results
 
 
-def get_per_exec_nodes(start_node:ASTINode, end_node:InstsNode, cur_depth=0)->Optional[list[tuple[NodeList, int, int]]]:  # parent list ; idx ; depth
-    # nodes = []
-    if isinstance(start_node, InstsNode):
-        return None
-    elif isinstance(start_node, NodeList):
-        # index = start_node.sub_nodes.index(end_node)
-        # if end_node in start_node.sub_nodes:
-        #     # index = start_node.sub_nodes.index(end_node)
-        #     result = 
-        for idx, sub_node in enumerate(start_node.sub_nodes):
-            if isinstance(sub_node, InstsNode) and sub_node == end_node:
-                return [(start_node, idx, cur_depth)]
-            else:
-                sub_node_result = get_per_exec_nodes(sub_node, end_node, cur_depth)
-                if sub_node_result is not None:
-                    return [(start_node, idx, cur_depth)] + sub_node_result
-    elif isinstance(start_node, BlockNode):
-        node_list = start_node.sub_node_list
-        return get_per_exec_nodes(node_list, end_node, cur_depth+1)
-    elif isinstance(start_node, LoopNode):
-        node_list = start_node.sub_node_list
-        return get_per_exec_nodes(node_list, end_node, cur_depth+1)
-    elif isinstance(start_node, IfNode):
-        r1 = get_per_exec_nodes(start_node.if_sub_node_list, end_node, cur_depth+1)
-        if start_node.has_else:
-            if r1 is None:
-                r2 = get_per_exec_nodes(start_node.else_sub_node_list, end_node, cur_depth+1)
-                return r2
-        return r1
-
-
 
 def gen_new_insts_for_node_jump_to_target(node:InstsNode, ast_state:ASTState):
     node_end_inst_idx = node.loc.inst_idx + node.get_length() - 1
@@ -276,17 +196,6 @@ def get_insts_padding_pos_and_list_end(stack_state:StackState, block_type:funcTy
     return specific_type_gen_insts
     
 
-def is_candi_target(ori_types:list[str], possible_types:list[str])->bool:
-    if len(ori_types) < len(possible_types):
-        return False
-    idx = len(possible_types) - 1
-    while idx >= 0:
-        ori_type = ori_types[idx]
-        possible_type = possible_types[idx]
-        if ori_type != possible_type:
-            return False
-        idx -= 1
-    return True
 
 
 class BlockReplacementGenerator:
@@ -305,10 +214,6 @@ class BlockReplacementGenerator:
         self.ast_state = ast_state
         self.target_node_inst_idx = self.target_node.loc.inst_idx
         self.max_depth = max_depth
-        # 
-        jump_cur_nodes_gen = idenfity_nodes_can_jump_to_here(target_node, max_depth=max_depth)
-        jump_cur_nodes = list(jump_cur_nodes_gen)
-        self.jump_cur_node_head_locs = [i.loc for i in jump_cur_nodes]
 
     @property
     def target_node_insts(self):
@@ -642,60 +547,6 @@ class IfShrink(IfShrinkBase):
 
 # def get_parent_nod
 
-def update_insts_in_block(
-    target_node:NodeList
-)  -> Generator[list[Inst], Any, None]:
-    inner_insts = target_node.get_insts()
-    cur_depth = 0
-    # candi_sub_blocks = []
-    new_insts:list[Inst] = []
-    for inst_idx, inst in enumerate(inner_insts):
-        if inst.opcode_text == 'loop':
-            cur_depth += 1
-        elif inst.opcode_text == 'block':
-            cur_depth += 1
-        elif inst.opcode_text == 'if':
-            cur_depth += 1
-        elif inst.opcode_text == 'end':
-            cur_depth -= 1
-        if inst.opcode_text == 'br' or inst.opcode_text == 'br_if':
-            cur_imm = inst.imm_part.val
-            if cur_imm == cur_depth:
-                if inst.opcode_text == 'br':
-                    yield new_insts
-                else:
-                    new_insts.append(InstFactory.opcode_inst('drop'))
-                    yield new_insts
-            elif cur_imm > cur_depth:
-                new_target = InstFactory.gen_binary_info_inst_high_single_imm(inst.opcode_text, cur_imm - 1)
-                new_insts.append(new_target)
-            else:
-                new_insts.append(inst)
-        elif inst.opcode_text == 'br_table':
-            imm_dict = inst.imm_part.data
-            label_idxs = imm_dict['l']
-            default_label = imm_dict['l_N']
-            if (label_idxs is not None and cur_depth in label_idxs) or cur_depth == default_label:
-                early_return_inst_idx = inst_idx
-                new_insts.append(InstFactory.opcode_inst('drop'))
-                yield new_insts
-            else:
-                if label_idxs is not None:
-                    new_lable_idxs = [d-1  if d > cur_depth else d for d in label_idxs]
-                else:
-                    new_lable_idxs = None
-                if default_label > cur_depth:
-                    new_default_label = default_label - 1
-                else:
-                    new_default_label = default_label
-                imm_dict = {'l': new_lable_idxs, 'l_N': new_default_label}
-                new_inst = InstFactory.gen_binary_info_inst_high(inst.opcode_text, imm_dict)
-                new_insts.append(new_inst)
-        else:
-            new_insts.append(inst)
-    for _ in range(cur_depth):
-        new_insts.append(InstFactory.opcode_inst('end'))
-    yield new_insts
 
 def _get_new_node_list_from_insts_and_replace_old_node_list(
     insts:list[Inst],

@@ -7,8 +7,6 @@
 
 import logging
 
-from . import config_iterators
-from . import config_splitters
 from .abstract_probdd import AbstractProbDD
 from .outcome_cache import ConfigCache
 from typing import Optional
@@ -17,29 +15,21 @@ logger = logging.getLogger(__name__)
 
 class ProbDD(AbstractProbDD):
 
-    def __init__(self, test, cache=None, id_prefix=(), split=config_splitters.zeller,
-                 subset_first=True, subset_iterator=config_iterators.forward, complement_iterator=config_iterators.forward,
-                 initialP=0.1, ig_sample=False, update_p0=False, 
-                 given_inip:Optional[dict[int,float]]=None,
-                 logger:Optional[logging.Logger]=None,
-                 task_id:Optional[str]=None
-                 ):
+    def __init__(self, test, cache=None, id_prefix=(),
+                  initialP=0.1, update_p0=False, 
+                  given_inip:Optional[dict[int,float]]=None,
+                  logger:Optional[logging.Logger]=None,
+                  task_id:Optional[str]=None
+                  ):
 
         """
         Initialize a ProbDD object.
         :param test: A callable tester object.
         :param cache: Cache object to use.
         :param id_prefix: Tuple to prepend to config IDs during tests.
-        :param split: Splitter method to break a configuration up to n parts.
-        :param subset_first: Boolean value denoting whether the reduce has to
-            start with the subset-based approach or not.
-        :param subset_iterator: Reference to a generator function that provides
-            config indices in an arbitrary order.
-        :param complement_iterator: Reference to a generator function that
-            provides config indices in an arbitrary order.
         """
         cache = cache or ConfigCache()
-        AbstractProbDD.__init__(self, test, split, cache=cache, id_prefix=id_prefix, initialP=initialP, ig_sample=ig_sample, update_p0=update_p0,  given_inip=given_inip, logger=logger, task_id=task_id)
+        AbstractProbDD.__init__(self, test, cache=cache, id_prefix=id_prefix, initialP=initialP, update_p0=update_p0,  given_inip=given_inip, logger=logger, task_id=task_id)
 
     def _processElementToPreserve(self,toBePreserve):
         tmp = []

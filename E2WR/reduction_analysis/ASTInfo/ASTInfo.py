@@ -1,7 +1,7 @@
 from typing import Optional
 from extract_block_mutator.WasmParser import WasmParser
 from reduction_analysis.ASTInfo.AST import BlockNode, IfNode, LoopNode
-from reduction_analysis.ASTInfo.AST import ASTINode, ASTNodeLoc, InstsNode, NodeList, find_nodes_by_predicate, func2AST, is_ancestor_of, traverse_ast
+from reduction_analysis.ASTInfo.AST import ASTINode, ASTNodeLoc, InstsNode, NodeList, func2AST, is_ancestor_of, traverse_ast
 
 
 class ASTInfo:
@@ -28,23 +28,6 @@ class ASTInfo:
 
     def update_call_insts_in_ast(self, parser: WasmParser):
         raise DeprecationWarning('This function is deprecated')
-        # assert 0
-        all_insts_nodes: list[InstsNode] = find_nodes_by_predicate(
-            self.raw_ast[0], lambda x: isinstance(x, InstsNode))
-        for insts_node in all_insts_nodes:
-            defined_func_idx = insts_node.loc.func_idx
-            start_idx = insts_node.loc.inst_idx
-            node_insts = insts_node.get_insts()
-            end_idx = start_idx + len(node_insts)
-            parser_insts = parser.defined_funcs[defined_func_idx].insts[start_idx:end_idx]
-            for idx, (node_inst, parser_inst) in enumerate(zip(node_insts, parser_insts)):
-                node_inst_op = node_inst.opcode_text
-                parser_inst_op = parser_inst.opcode_text
-                if node_inst_op == 'call' or node_inst_op == 'ref.func':
-
-                    if node_inst != parser_inst:
-                        # assert 0 , 'To remove the fucntion'
-                        insts_node.insts[idx] = parser_inst
 
     @classmethod
     def from_parser(cls, parser: WasmParser, func_idxs: Optional[list[int]] = None):
@@ -109,11 +92,6 @@ class ASTInfo:
 
     def get_non_empty_ast_head_pos(self) -> list[ASTNodeLoc]:
         raise DeprecationWarning('This function is deprecated')
-        to_insert_pos: list[ASTNodeLoc] = []
-        all_sub_trees: list[ASTINode] = self.get_all_non_empty_ast_nodes()
-        for sub_tree in all_sub_trees:
-            to_insert_pos.append(sub_tree.loc)
-        return to_insert_pos
 
     def get_all_non_empty_ast_nodes(self, considered_func_idxs:Optional[set[int]]=None) -> list[ASTINode]:
         nodes = []
@@ -149,19 +127,6 @@ class ASTInfo:
         new_length: int
     ):
         raise DeprecationWarning('This function is deprecated')
-        func_idx = loc.func_idx
-        cur_root_ast = self.raw_ast[func_idx]
-        sub_nodes = traverse_ast(cur_root_ast, lambda x: x if x.loc.inst_idx >=
-                                 loc.inst_idx else None, collect_results=True)
-        ori_start = loc.inst_idx
-        ori_end = loc.inst_idx + ori_length
-        assert sub_nodes is not None
-        to_add_length = new_length - ori_length
-        for n in sub_nodes:
-            if n.loc.inst_idx > ori_start:
-                assert n.loc.inst_idx >= ori_end, print(
-                    f'n.loc : {n.loc}, ori_end: {ori_end}, loc: {loc}, to_add_length: {to_add_length}, new_length: {new_length}, ori_length: {ori_length}, n: {n.get_node_info()}')
-                n.loc.inst_idx += to_add_length
 
     def update_loc_info(self, func_idx: int):
         cur_root_ast = self.raw_ast[func_idx]

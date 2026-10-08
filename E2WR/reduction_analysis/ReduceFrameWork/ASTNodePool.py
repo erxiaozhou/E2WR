@@ -9,7 +9,6 @@ from reduction_analysis.ASTState import ASTState
 
 class ScoreStrategy(Enum):
     SIZE = 1
-    DISTRIBUTION = 2
 
 
 class ToReduceTask: 
@@ -100,20 +99,6 @@ def get_node_size_score(node: ASTINode, max_length: Optional[float] = None) -> f
         return float(length_score) / max_length
     return float(length_score)
 
-def get_node_size_score_proi_not_block(node: ASTINode) -> float:
-    try:
-        length_score = node.get_length()
-    except Exception:
-        length_score = 1
-    if isinstance(node, NodeList):
-        return float(length_score + 0.5)
-    if isinstance(node, InstsNode):
-        return float(length_score)
-    return float(length_score)
-    # if isinstance(node, LoopNode):
-    #     return float(length_score)
-    # if isinstance(node, (BlockNode, IfNode, LoopNode)):
-    return float((length_score - 2) / 100) + 2
 
 
 def _is_cf_node(node: ASTINode) -> bool:
@@ -124,88 +109,9 @@ def _is_cf_node(node: ASTINode) -> bool:
     return True
 
 
-def get_node_score_consider_distribution(node: ASTINode, all_inst_num: int) -> float:
-    if not isinstance(node, NodeList):
-        try:
-            length_score = node.get_length()
-        except Exception:
-            length_score = 1
-        if isinstance(node, InstsNode):
-            return float(length_score * (all_inst_num - length_score))
-        return float(((length_score) / 10 + 2) * (all_inst_num - length_score))
-
-    all_subnode_lengths = node.get_sub_node_lengths()
-    block_node_sizes: list[int] = []
-    inst_num = 0
-    for sub_node in node.get_sub_nodes():
-        if isinstance(sub_node, InstsNode):
-            inst_num += len(sub_node.insts)
-        else:
-            block_node_sizes.append(sub_node.get_length())
-
-    total_size = sum(all_subnode_lengths) + inst_num
-    to_minus_2 = sum([size**2 for size in block_node_sizes]) + inst_num
-    expectation = total_size * all_inst_num - to_minus_2
-    return float(expectation)
-
-
-def get_node_naive_score_in_batch_for_heap(
-    ast_state: ASTState,
-    considered_func_idxs: Optional[set[int]] = None,
-) -> list[tuple[float, int, ASTINode]]:
-    nodes = ast_state.ast_info.get_all_non_empty_ast_nodes(
-        considered_func_idxs=considered_func_idxs
-    )
-    node_scorer = NodeScoreCalculator(ScoreStrategy.SIZE)
-    considered_nodes = [(-node_scorer.calculate_score(node), id(node), node) for node in nodes]
-    return considered_nodes
-
-
-def get_node_score_consider_distribution_in_batch_for_heap(
-    ast_state: ASTState,
-    all_inst_num: int,
-    considered_func_idxs: Optional[set[int]] = None,
-) -> list[tuple[float, int, ASTINode]]:
-    nodes = ast_state.ast_info.get_all_non_empty_ast_nodes(
-        considered_func_idxs=considered_func_idxs
-    )
-    considered_nodes = [
-        (-get_node_score_consider_distribution(node, all_inst_num), id(node), node)
-        for node in nodes
-    ]
-    return considered_nodes
-
-
 class NodeScoreCalculator:
     def __init__(self, strategy: ScoreStrategy):
         self.strategy = strategy
-
-    def calculate_score(self, node: ASTINode, all_inst_num: Optional[int] = None) -> float:
-        if self.strategy == ScoreStrategy.SIZE:
-            return get_node_size_score(node)
-        if self.strategy == ScoreStrategy.DISTRIBUTION:
-            assert all_inst_num is not None, (
-                "all_inst_num must be provided for DISTRIBUTION strategy"
-            )
-            return get_node_score_consider_distribution(node, all_inst_num)
-        raise ValueError(f"Unknown strategy: {self.strategy}")
-
-    def calculate_score_for_batch(
-        self,
-        ast_state: ASTState,
-        considered_func_idxs: Optional[set[int]] = None,
-        all_inst_num: Optional[int] = None,
-    ) -> list[tuple[float, int, ASTINode]]:
-        if self.strategy == ScoreStrategy.SIZE:
-            return get_node_naive_score_in_batch_for_heap(ast_state, considered_func_idxs)
-        if self.strategy == ScoreStrategy.DISTRIBUTION:
-            assert all_inst_num is not None, (
-                "all_inst_num must be provided for DISTRIBUTION strategy"
-            )
-            return get_node_score_consider_distribution_in_batch_for_heap(
-                ast_state, all_inst_num, considered_func_idxs
-            )
-        raise ValueError(f"Unknown strategy: {self.strategy}")
 
 
 class ASTNodePool:
@@ -214,7 +120,6 @@ class ASTNodePool:
         heap_items: Optional[list[tuple[float, int, ASTINode]]] = None,
         *,
         node_scorer: NodeScoreCalculator,
-        max_func_num:int,
         all_inst_num: Optional[int] = None,
         ast_state: ASTState,
         prioritize_node_lists: bool = False,
@@ -225,7 +130,6 @@ class ASTNodePool:
         self._node_scorer = node_scorer
         self._all_inst_num = all_inst_num
         self.ast_state = ast_state
-        self.max_func_num = max_func_num
         self._prioritize_node_lists = prioritize_node_lists
         self._reprocess_parents = reprocess_parents
         heapq.heapify(self._heap)
@@ -251,24 +155,16 @@ class ASTNodePool:
         if strategy != ScoreStrategy.SIZE:
             raise NotImplementedError('ASTNodePool.from_ast_state currently only supports ScoreStrategy.SIZE')
 
-        node_lengths: dict[ASTINode, int] = {}
-        for tree in ast_state.ast_info.get_all_root_trees():
-            if considered_func_idxs is not None and tree.loc.func_idx not in considered_func_idxs:
-                continue
-            node_lengths.update(get_tree_node_lengths(tree, strategy=strategy))
-
         effective_max_length = all_inst_num if prioritize_node_lists else None
         items = [
             (-float(get_node_size_score(node, max_length=effective_max_length)), id(node), node)
             for node in nodes if not isinstance(node, InstsNode)
         ]
-        max_func_num = len(considered_func_idxs) if considered_func_idxs is not None else len(ast_state.snapshot.parser.defined_funcs)
         return cls(
             items,
             node_scorer=node_scorer,
             all_inst_num=all_inst_num,
             ast_state=ast_state,
-            max_func_num=max_func_num,
             prioritize_node_lists=prioritize_node_lists,
             reprocess_parents=reprocess_parents,
         )
@@ -290,12 +186,7 @@ class ASTNodePool:
         heapq.heappush(self._heap, (-float(score), node_identity, node))
         self._in_heap_node_ids.add(node_identity)
 
-    def pop_with_priority(self) -> tuple[float, ASTINode]:
-        priority, _, node = heapq.heappop(self._heap)
-        self._in_heap_node_ids.discard(id(node))
-        return priority, node
-
-    def push_non_empty_subtree_nodes(self, *, new_nodes: Iterable[ASTINode], exclude_node_lists: bool = False) -> None:
+    def push_non_empty_subtree_nodes(self, *, new_nodes: Iterable[ASTINode]) -> None:
         for _n in new_nodes:
             subtree_lengths = get_tree_node_lengths(_n, strategy=self._node_scorer.strategy)
             _sub_nodes = traverse_ast(_n, lambda x: x, collect_results=True)
@@ -305,15 +196,9 @@ class ASTNodePool:
                     continue
                 if isinstance(sub_node, InstsNode):
                     continue
-                if exclude_node_lists and isinstance(sub_node, NodeList):
-                    continue
                 if isinstance(sub_node, (BlockNode, IfNode, LoopNode)):
                     assert sub_node.get_parent()
                 self.push(node=sub_node)
-
-
-    def select_top_k(self, k: int) -> list[ASTINode]:
-        return [item[2] for item in heapq.nsmallest(k, self._heap)]
 
     def _passes_threshold_to_save(self, node: ASTINode, *, max_score: Optional[float]) -> bool:
         if max_score is not None and get_node_size_score(node, max_length=self._all_inst_num) >= max_score:
@@ -336,15 +221,14 @@ class ASTNodePool:
     def practical_select(
         self,
         *,
-        max_: int = 5,
         max_score: Optional[float] = None,
     ) -> Optional[ToReduceTask]:
-        result = self._select_from_main_heap(max_, max_score)
+        result = self._select_from_main_heap(max_score)
         if result is not None:
             self._current_source = 'main_heap'
             return result
 
-        if self._prioritize_node_lists or self._reprocess_parents:
+        if self._reprocess_parents:
             result = self._select_from_p3_heap()
             if result is not None:
                 self._current_source = 'p3'
@@ -355,42 +239,18 @@ class ASTNodePool:
 
     def _select_from_main_heap(
         self,
-        max_: int,
         max_score: Optional[float],
     ) -> Optional[ToReduceTask]:
         if not self:
             return None
-        max_ = min(max_, self.max_func_num)
         result = self._pop_with_priority_with_drop(max_score=max_score)
         if result is None:
             return None
         _, first_node = result
         if _is_cf_node(first_node):
             return OneCFNodeReduceTask(node=first_node)
-        nodes: list[NodeList] = [first_node]  # type: ignore
-        to_push = []
-        covered_func_idxs = {first_node.func_idx}
-        # 
-        node_inst_num = first_node.get_length()
-
-        while self and len(nodes) < max_ and node_inst_num < 100000:
-            result = self._pop_with_priority_with_drop(max_score=max_score)
-            if result is None:
-                break
-            _, node = result
-
-            if not isinstance(node, NodeList):
-                to_push.append(node)
-                break
-            elif node.func_idx in covered_func_idxs:
-                to_push.append(node)
-            else:
-                nodes.append(node)
-                covered_func_idxs.add(node.func_idx)
-                node_inst_num += node.get_length()
-        for node in to_push:
-            self.push(node=node)
-        return NodeListsReduceTask(nodes=nodes)
+        # 任务恒单节点：两处调用点都传 max_=1，多节点聚合路径永不执行（D-11）
+        return NodeListsReduceTask(nodes=[first_node])
 
 
     def _is_to_reduce_node(self, node: ASTINode, ast_info: ASTInfo):
@@ -430,12 +290,7 @@ class ASTNodePool:
     def _push_new_nodes_main_heap(self, task: ToReduceTask, new_nodes: list[ASTINode]) -> None:
         if not new_nodes:
             return
-        if not self._prioritize_node_lists:
-            self.push_non_empty_subtree_nodes(new_nodes=new_nodes)
-        elif isinstance(task, OneCFNodeReduceTask):
-            self.push_non_empty_subtree_nodes(new_nodes=new_nodes, exclude_node_lists=True)
-        else:
-            self.push_non_empty_subtree_nodes(new_nodes=new_nodes)
+        self.push_non_empty_subtree_nodes(new_nodes=new_nodes)
 
     def handle_task_success(self, task: ToReduceTask, new_nodes: list[ASTINode]) -> None:
         if self._current_source == 'p3':
@@ -443,15 +298,11 @@ class ASTNodePool:
             return
         self._push_new_nodes_main_heap(task, new_nodes)
         if self._reprocess_parents:
-            if self._prioritize_node_lists and isinstance(task, OneCFNodeReduceTask):
-                if isinstance(task, OneCFNodeReduceTask):
-                    self._track_parent_to_p3(new_nodes)
-            else:
-                for parent in self._find_parents_after_reduce(task, new_nodes):
-                    if isinstance(parent, RootNode):
-                        continue
-                    if not self.ast_state.ast_info.node_is_removed(parent):
-                        self._push_to_p3_heap(parent)
+            for parent in self._find_parents_after_reduce(task, new_nodes):
+                if isinstance(parent, RootNode):
+                    continue
+                if not self.ast_state.ast_info.node_is_removed(parent):
+                    self._push_to_p3_heap(parent)
 
     def _handle_p3_success(self, task: ToReduceTask, new_nodes: list[ASTINode]) -> None:
         for parent in self._find_parents_after_reduce(task, new_nodes):
@@ -478,13 +329,3 @@ class ASTNodePool:
                         seen_ids.add(id(parent))
                         parents.append(parent)
         return parents
-
-    def _track_parent_to_p3(self, new_nodes: list[ASTINode]) -> None:
-        for n in new_nodes:
-            if n.has_parent():
-                parent_node = n.get_parent()
-                if isinstance(parent_node, RootNode):
-                    continue
-                # and isinstance(n.get_parent(), NodeList):
-                self._push_to_p3_heap(n.get_parent())
-                return

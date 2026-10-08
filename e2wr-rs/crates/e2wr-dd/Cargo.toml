@@ -1,0 +1,15 @@
+[package]
+name = "e2wr-dd"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+indexmap.workspace = true
+libc.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+libc.workspace = true

@@ -433,16 +433,6 @@ class GeneralMutationApplier():
             for func_idx in mutated_func_idxs:
                 func_parts:FuncBAParts = snapshot.func_bas[func_idx]
                 if func_idx in func_idx2inst_mutations:
-                    # 
-                    # _func_inst_mutations: list[FuncInstMutation] = func_idx2inst_mutations[func_idx]
-                    # # start_inst_idx = 
-                    # for m in _func_inst_mutations:
-                    #     # assert m.func_idx == func_idx
-                    #     start_idx = m.start_offset
-                    #     end_idx = m.end_offset
-                    #     print('==============================')
-                    #     print((snapshot.parser.defined_funcs[func_idx].insts[start_idx:end_idx]))
-                    # 
                     func_parts.apply_mutations(func_idx2inst_mutations[func_idx])
                 if func_idx in func_idx2local_descs:
                     new_local_bytes = func_idx2local_descs[func_idx].encode()

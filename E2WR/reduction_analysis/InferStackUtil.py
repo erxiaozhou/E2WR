@@ -114,12 +114,6 @@ def _get_cur_context_by_ast_info(
     outer_layers: list[list[str]] = []
     node_ptr = innermost
     while node_ptr is not None:
-        # if isinstance(node_ptr, BlockNode) and inside_block_body(node_ptr):
-        #     outer_layers.append(node_ptr.get_block_type().result_types)
-        # elif isinstance(node_ptr, LoopNode) and inside_loop_body(node_ptr):
-        #     outer_layers.append(node_ptr.get_block_type().param_types)
-        # elif isinstance(node_ptr, IfNode) and inside_if_branch(node_ptr):
-        #     outer_layers.append(node_ptr.get_block_type().result_types)
         if isinstance(node_ptr, BlockNode):
             outer_layers.append(node_ptr.get_block_type().result_types)
         elif isinstance(node_ptr, LoopNode):

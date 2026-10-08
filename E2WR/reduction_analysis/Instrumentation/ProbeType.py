@@ -43,18 +43,12 @@ class PackedProbeHeaderCodec:
 
 class ProbeType(Enum):
     STACK = 'stack'
-    LOCAL = 'local'
-    GLOBAL = 'global'
     EXECUTED = 'executed'
 
 
 def encode_probe_type(probe_type: ProbeType) -> int:
     if probe_type == ProbeType.STACK:
         return 0
-    elif probe_type == ProbeType.LOCAL:
-        return 1
-    elif probe_type == ProbeType.GLOBAL:
-        return 2
     elif probe_type == ProbeType.EXECUTED:
         return 3
     else:
@@ -63,10 +57,6 @@ def encode_probe_type(probe_type: ProbeType) -> int:
 def decode_probe_type(probe_type_value: int) -> ProbeType:
     if probe_type_value == 0:
         return ProbeType.STACK
-    elif probe_type_value == 1:
-        return ProbeType.LOCAL
-    elif probe_type_value == 2:
-        return ProbeType.GLOBAL
     elif probe_type_value == 3:
         return ProbeType.EXECUTED
     else:

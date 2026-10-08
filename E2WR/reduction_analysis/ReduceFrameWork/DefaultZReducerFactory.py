@@ -3,8 +3,6 @@ from pathlib import Path
 from reduction_analysis.ReduceUtil.NonInstrumentationInstStrategy import ReduceStrategyType
 from reduction_analysis.ReduceFrameWork.FinalPolishPass import FinalPolishPass
 from reduction_analysis.ReduceFrameWork.NodeShrinkPass import NodeShrinkPass
-from reduction_analysis.ReduceFrameWork.PersesReducePass import PersesReducePass
-from reduction_analysis.ReduceUtil.ReduceStrategy import SpecificTypeReplacementGen
 from reduction_analysis.ReductionDescUtil.OneReducerDirSystem import OneReducerDirSystem
 from reduction_analysis.callsite_reduction import CallsiteRepStrategy
 from ..ReducerPassUtil.ZReducerPass import ZReducerPassAndCheck, ZReducerType, ZReducerPass
@@ -61,7 +59,6 @@ def get_default_z_reducer(
             ),
             oracle_func=oracle_func,
             DEBUG=debug,
-            ignore_exceptions=True,
             name=reducer_type.value,
             to_test_func_name=to_test_func_name,
             cr_strategy=cr_strategy,

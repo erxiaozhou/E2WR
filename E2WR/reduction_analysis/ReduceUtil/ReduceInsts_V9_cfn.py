@@ -40,7 +40,6 @@ class _CFNPlanner:
         self.sg_replacements: dict[int, Replacement] = {}
         self.candidate_sg_idxs: set[int] = set()
         self.replaced_sg_idxs: set[int] = set()
-        self.group_idx2elem_idxs: dict[int, set[int]] = {}
 
         self._build_candidates()
 
@@ -57,12 +56,6 @@ class _CFNPlanner:
             return
 
         can_replace_idxs = get_surround_unreachable_replaceable_group_idxs(raw_groups)
-
-        cur_idx = 0
-        for gid, group in enumerate(raw_groups):
-            elem_num = len(group.elems)
-            self.group_idx2elem_idxs[gid] = set(range(cur_idx, cur_idx + elem_num))
-            cur_idx += elem_num
 
         for gid in sorted(can_replace_idxs):
             _, mutation = transform_group_mutation_to_standard_param(
@@ -84,10 +77,8 @@ def call_V9_cfn_multi_basic(
     ctx_by_node_list: dict[NodeList, OneNodeListReductionCtx],
     reduce_applier: OneNodeListReducerApplier,
     input_elems: NodeListElemInfo,
-    DEBUG: bool,
     rest_time: Optional[float] = None,
 ) -> NodeListElemInfo:
-    del DEBUG
     assert isinstance(reduce_applier, ElemGuidedNodeListReducerMultiNode)
     expected_end_time = None if rest_time is None else time.time() + rest_time
 
@@ -125,11 +116,6 @@ def call_V9_cfn_multi_basic(
                 planner.replaced_sg_idxs.update(run_state.replaced_sg_idxs)
             planner.has_any_success = True
 
-    nl2failed_sg_idxs: dict[NodeList, set[int]] = {
-        node_list: planner.candidate_sg_idxs - planner.replaced_sg_idxs
-        for node_list, planner in nl2planner.items()
-    }
-
     out: dict[NodeList, list[OneElem]] = {}
     node_list2raw_len: dict[NodeList, int] = {}
     node_list2has_success: dict[NodeList, bool] = {}
@@ -137,10 +123,6 @@ def call_V9_cfn_multi_basic(
         out[node_list] = apply_elem_mutation(planner.input_elems, planner.accepted_elem_mutation)
         node_list2raw_len[node_list] = planner.raw_elems_length
         node_list2has_success[node_list] = planner.has_any_success
-
-        for sg_idx in sorted(nl2failed_sg_idxs[node_list]):
-            failed_elems = [planner.input_elems[i] for i in sorted(planner.group_idx2elem_idxs[sg_idx])]
-            planner.ctx.raw_elems_cache.add_failed_by_raw_elems(failed_elems)
 
     finalize_out_in_reverse_inst_order(
         reduce_applier=reduce_applier,

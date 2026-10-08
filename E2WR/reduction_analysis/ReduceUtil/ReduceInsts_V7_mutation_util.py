@@ -6,10 +6,8 @@ from typing import Optional, Sequence
 from .ReduceInsts_V5_util import (
     OneElem,
     StackChange,
-    gen_replacement_by_stack_change,
     gen_type_for_graph,
     get_seq_common_prefix_len,
-    reset_stack_change,
     ElemTypeInfo,
 )
 from .ReduceInsts_cfg_util import V7Cfg
@@ -152,18 +150,11 @@ def materialize_replacements(
     return result
 
 
-def gen_produced_operand_elem_with_cfg(
+def gen_produced_operand_elem(
     *,
     operand_type: str,
-    producer_source: Optional[tuple[OneElem, int]],
-    cfg: V7Cfg,
 ) -> OneElem:
-    inst = None
-    if cfg.use_VP and producer_source is not None:
-        producer_elem, produced_op_idx = producer_source
-        inst = cfg.get_replacement_with_val(producer_elem, produced_op_idx)
-    if inst is None:
-        inst = get_inst_by_require_ty_const_n(operand_type)
+    inst = get_inst_by_require_ty_const_n(operand_type)
     return OneElem(
         elem_idx=-1,
         elem=inst,
@@ -173,36 +164,6 @@ def gen_produced_operand_elem_with_cfg(
                 inst_type=funcTypeFactory.generate_one_func_type_default([], [operand_type]),
             )
         ),
-    )
-
-
-def get_elem_mutation_for_sg_naive(sg: SubGraph, cfg: V7Cfg) -> Optional[Replacement]:
-    assert sg.components
-    assert all(c.elem_idxs for c in sg.components)
-
-    components = sorted(sg.components, key=lambda c: c.elem_idxs[0])
-
-    mutation: dict[int, list[OneElem]] = {}
-    for comp in components:
-        gen_types = list(comp.comp_gen_types)
-        stack_change = reset_stack_change(gen_types, comp.drop_types)
-        new_elems = gen_replacement_by_stack_change(stack_change)
-
-        start_elem_idx: int = comp.elem_idxs[0]
-        assert start_elem_idx not in mutation
-        mutation[start_elem_idx] = new_elems
-        for idx in comp.elem_idxs[1:]:
-            if idx in mutation and mutation[idx] != []:
-                return None
-            mutation[idx] = []
-
-    if not mutation:
-        return None
-
-    return Replacement(
-        sg_idx=sg.idx,
-        component_plans=(),
-        concrete_mutation=mutation,
     )
 
 
@@ -217,7 +178,7 @@ def get_elem_mutation_for_sg_ng(
     bypass_cancel = not getattr(sg, 'enable_internal_cancel', True)
 
     skip_num = 0
-    if not bypass_cancel and not cfg.use_VP:
+    if not bypass_cancel:
         for input_op, output_op in zip(sg.raw_external_input_ops, sg.final_output_ops):
             if input_op.type_info != output_op.type_info:
                 break
@@ -245,10 +206,8 @@ def get_elem_mutation_for_sg_ng(
             produced_operands.append(
                 ProducedOperandInfo(
                     operand=op,
-                    replacement_elem=gen_produced_operand_elem_with_cfg(
+                    replacement_elem=gen_produced_operand_elem(
                         operand_type=ty,
-                        producer_source=sg.graph_helper.get_vop_gen_source(op),
-                        cfg=cfg,
                     ),
                 )
             )

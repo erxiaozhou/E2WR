@@ -4,8 +4,6 @@ from typing import Any
 from .prob_util import compute_group_test_likelihood
 
 
-def betaln(a, b):
-    return math.lgamma(a) + math.lgamma(b) - math.lgamma(a + b)
 
 
 def should_update_p0_bak3(test_history, current_p0: float, new_p0: float):

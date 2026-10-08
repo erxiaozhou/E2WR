@@ -538,15 +538,6 @@ def _get_defined_func_call_times_relation(
                 # called2caller.setdefault(inst.imm_part.val, set()).add(func_idx)
     return defined_called2defined_caller
 
-def _get_func_call_times_relation_bak(
-    parser:WasmParser
-):
-    called2caller:dict[int, set[int]] = {}
-    for func_idx, func in enumerate(parser.defined_funcs):
-        for inst in func.insts:
-            if inst.opcode_text == 'call':
-                called2caller.setdefault(inst.imm_part.val, set()).add(func_idx)
-    return called2caller
 # rewrite function return type ========================================================================================
 
 class DropOrParams:

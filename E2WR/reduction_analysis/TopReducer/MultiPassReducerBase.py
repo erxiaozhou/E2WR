@@ -34,7 +34,6 @@ class MPFrameworkReducerBase(FrameworkReducer):
         assert len(set(all_pass_names)) == len(all_pass_names), "pass names should be unique"
         self.stats = PassStatistics(all_pass_names)
         self.select_times = 0
-        self.last_select_pass_name: Optional[str] = None
         self.tried_since_last_update: set[str] = set()
         # if Path
 
@@ -70,7 +69,6 @@ class MPFrameworkReducerBase(FrameworkReducer):
         else:
             self.tried_since_last_update.add(selected_pass.name)
         self.stats.update_stats(selected_pass.name, cur_result, cause_update)
-        self.last_select_pass_name = selected_pass.name
         self.logger.info(f"Run pass: {selected_pass.name}, result: {cur_result}, cur_testing_time: {cur_time:0.2f}")
         
         return cur_result

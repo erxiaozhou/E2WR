@@ -1,20 +1,15 @@
 #!/usr/bin/env python3
 
-import json
 import os
-from pathlib import Path
 import random
 import time
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
-from file_util import copy_file, save_json
-from extract_block_mutator.WasmParser import get_parser_from_wasm_path
+from file_util import copy_file
 from reduction_analysis.Instrumentation.CallReturnProbeUtil import gen_callsites_return_stack_probe_descs
-from reduction_analysis.Instrumentation.DumpData import DumpDataList, OneDumpData
+from reduction_analysis.Instrumentation.DumpData import DumpDataList
 from reduction_analysis.Instrumentation.ValueProbeInstrument import ProbeDesc, ValueProbeManager
 from reduction_analysis.Instrumentation.ProbeType import ProbeType
-from reduction_analysis.Instrumentation.CallReturnMutationUtil import gen_call_replacement_mutation
-from extract_block_mutator.funcType import funcType
 from reduction_analysis.ParserModification import MultiPhaseMutationApplier, WMSnapshot
 from reduction_analysis.ParserModificationUtil import FuncInstMutation
 from reduction_analysis.ProbDDUtil.ProbDDFactory import ProbDDFactory
@@ -39,32 +34,17 @@ class CallsiteRepStrategy(Enum):
     TY_ONLY = 1
     VP = 2
 
-@dataclass(frozen=True)
-class _DumpEvent:
-    probe_idx: int
-    probe_type: ProbeType
-    data: OneDumpData
-
 
 class DumpDataListParser:
 
     def __init__(self, dumped: DumpDataList):
-        self.events: list[_DumpEvent] = []
         self.probe_idx_exec_times: dict[int, int] = {}
         self.first_pos_by_probe: dict[int, int] = {}
-        self.last_stack_dump_by_probe: dict[int, OneDumpData] = {}
 
         for i, one in enumerate(dumped):
             probe_idx = int(one.probe_idx)
-            probe_type = one.probe_type
-            self.events.append(_DumpEvent(probe_idx=probe_idx, probe_type=probe_type, data=one))
-
-            if probe_idx not in self.first_pos_by_probe:
-                self.first_pos_by_probe[probe_idx] = int(i)
+            self.first_pos_by_probe.setdefault(probe_idx, int(i))
             self.probe_idx_exec_times[probe_idx] = self.probe_idx_exec_times.get(probe_idx, 0) + 1
-
-            if probe_type == ProbeType.STACK:
-                self.last_stack_dump_by_probe[probe_idx] = one
 
     def prepare_calculate_weiths_kwargs(
         self,
@@ -105,13 +85,6 @@ class _DDEarlyStop(Exception):
         super().__init__("DD early stop")
         self.replaced = replaced
 
-
-
-@dataclass(frozen=True)
-class CallCandidate:
-
-    cand_idx: int
-    mutation: FuncInstMutation
 
 
 @dataclass(frozen=True)
@@ -390,8 +363,6 @@ def replace_calls_interface_random_replacement(
     DEBUG: bool = False,
     skip_void_calls: bool = True,
     save_ratio: float = 0.7,
-    weight_strategy: WeithtStrategy = WeithtStrategy.LAST_APPEAR,
-    unexecuted_as_unreachable: bool = False,
 ):
     t0 = time.time()
     os.makedirs(tmp_dir, exist_ok=True)
@@ -442,7 +413,7 @@ def replace_calls_interface_random_replacement(
         probe_idx2call_site=probe_idx2call_site,
         dumped_parser=dumped_parser,
     )
-    probdd_weights = calculate_weiths_by_strategy(weight_strategy, **weight_kwargs)
+    probdd_weights = calculate_weiths_by_strategy(WeithtStrategy.LAST_APPEAR, **weight_kwargs)
 
     cand_idx2mutation: dict[int, FuncInstMutation] = {}
     for probe_desc in callsite_probe_descs:
@@ -450,29 +421,20 @@ def replace_calls_interface_random_replacement(
         if cs is None:
             continue
 
-        executed = dumped_parser.probe_idx_exec_times.get(int(probe_desc.idx), 0) > 0
-        if unexecuted_as_unreachable and not executed:
-            mutation = FuncInstMutation(
-                func_idx=cs.defined_func_idx,
-                start_offset=cs.call_inst_idx,
-                end_offset=cs.call_inst_idx + 1,
-                new_insts=[InstFactory.opcode_inst("unreachable")],
-            )
-        else:
-            call_type = parser.types[cs.callee_type_idx]
-            param_types = list(call_type.param_types)
-            result_types = list(call_type.result_types)
+        call_type = parser.types[cs.callee_type_idx]
+        param_types = list(call_type.param_types)
+        result_types = list(call_type.result_types)
 
-            # call_indirect additionally consumes the table element index (i32).
-            if cs.kind == "call_indirect":
-                param_types = list(param_types) + ["i32"]
+        # call_indirect additionally consumes the table element index (i32).
+        if cs.kind == "call_indirect":
+            param_types = list(param_types) + ["i32"]
 
-            mutation = _gen_random_call_replacement_mutation_by_type(
-                func_idx=cs.defined_func_idx,
-                call_inst_idx=cs.call_inst_idx,
-                param_types=param_types,
-                result_types=result_types,
-            )
+        mutation = _gen_random_call_replacement_mutation_by_type(
+            func_idx=cs.defined_func_idx,
+            call_inst_idx=cs.call_inst_idx,
+            param_types=param_types,
+            result_types=result_types,
+        )
         cand_idx2mutation[probe_desc.idx] = mutation
 
     universe = sorted(list(cand_idx2mutation.keys()))

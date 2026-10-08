@@ -15,14 +15,6 @@ from enum import Enum
 
 
 
-class NodeType(Enum):
-    INSTS = 'insts'
-    BLOCK = 'block'
-    LOOP = 'loop'
-    IF = 'if'
-    ELSE = 'else'
-    ROOT = 'root'
-    NODE_LIST = 'node_list'
 
 class ASTNodeLoc:
     def __init__(self, func_idx:int, inst_idx:int):
@@ -43,9 +35,7 @@ class ASTNodeLoc:
 
 class ASTNode(ABC):pass
 
-class FuncDescNode(ASTNode): pass
 
-class AllFuncsNode(ASTNode): pass 
     
 
 
@@ -131,12 +121,6 @@ class InstsNode(ASTINode):
 
     def get_type_req(self, context:Optional[Context]=None) -> typeReq:
         raise ValueError('Though it is possible, it should not be called')
-        if context is None:
-            raise ValueError('context is None')
-        ty_req = get_insts_ty_req(self.insts, context)
-        # if len(self.insts) <= 1:
-        #     print(f'The insts to infer type requirement is :{self.insts}. The node : {self.get_node_info()} ty_req is {ty_req}')
-        return ty_req
 
     def get_block_type(self)->funcType:
         raise NotImplementedError()
@@ -292,19 +276,6 @@ class NodeList(ASTINode):
                 # raise e
             sum_ += node_length
         return sum_
-        try:
-            return sum(node.get_length() for node in self.sub_nodes)
-        except Exception:
-            if len(self.sub_nodes) == 0:
-                return 0
-            try:
-                start_node = self.sub_nodes[0]
-                start_idx = start_node.loc.inst_idx
-                last_node = self.sub_nodes[-1]
-                end_idx = last_node.loc.inst_idx + last_node.get_length()
-                return end_idx - start_idx
-            except Exception:
-                return len(self.sub_nodes)
 
 
 class BlockNode(ASTINode):
@@ -596,13 +567,6 @@ def insts2AST(
     traverse_ast(root_block, convert_to_insts_node_with_type)
     return root_block
 
-def get_all_nodes_as_a_list(root_node: ASTINode)->list[ASTINode]:
-    nodes = []
-    def collect_nodes(node):
-        nodes.append(node)
-    traverse_ast(root_node, collect_nodes, pre_order=True, post_order=False, collect_results=True)
-    assert nodes is not None
-    return nodes
 
 def traverse_ast(root_node: ASTINode, visitor_func, pre_order=True, post_order=False, collect_results=False):
     results = [] if collect_results else None
@@ -627,15 +591,6 @@ def traverse_ast(root_node: ASTINode, visitor_func, pre_order=True, post_order=F
     _traverse(root_node)
     return results if collect_results else None
 
-def find_nodes_by_type(root_node: ASTINode, node_type):
-    nodes = []
-    
-    def collect_matching_nodes(node):
-        if isinstance(node, node_type):
-            nodes.append(node)
-    
-    traverse_ast(root_node, collect_matching_nodes)
-    return nodes
 
 def find_nodes_by_predicate(root_node: ASTINode, predicate_func):
     nodes = []
@@ -647,17 +602,6 @@ def find_nodes_by_predicate(root_node: ASTINode, predicate_func):
     traverse_ast(root_node, collect_matching_nodes)
     return nodes
 
-def count_instructions(root_node: ASTINode):
-   
-    total_count = 0
-    
-    def count_node_insts(node):
-        nonlocal total_count
-        insts = node.get_insts()
-        total_count += len(insts)
-    
-    traverse_ast(root_node, count_node_insts, pre_order=True, post_order=False)
-    return total_count
 
 def print_ast_structure(root_node: ASTINode, indent=""):
  
@@ -666,28 +610,6 @@ def print_ast_structure(root_node: ASTINode, indent=""):
     for child in root_node.get_sub_nodes():
         print_ast_structure(child, indent + "  ")
 
-def locate_node_contain_inst_pos(root_node: ASTINode, inst_pos: int) -> ASTINode:
-   
-    matching_nodes = []
-    
-    def find_matching_nodes(node, depth=0):
-        start_idx = node.inst_idx
-        length = node.get_length()
-        end_idx = start_idx + length - 1
-        
-        if start_idx <= inst_pos <= end_idx:
-            matching_nodes.append((node, depth, length))
-            
-            for child in node.get_sub_nodes():
-                find_matching_nodes(child, depth + 1)
-    
-    find_matching_nodes(root_node)
-    
-    if matching_nodes:
-        matching_nodes.sort(key=lambda x: (-x[1], x[2]))
-        return matching_nodes[0][0]
-    
-    return root_node
 
 
 def is_ancestor_of(ancestor:ASTINode, descendant:ASTINode)->bool:

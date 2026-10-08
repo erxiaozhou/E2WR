@@ -89,7 +89,6 @@ class EmptyPart(OneValPart):
         if val is None:
             return bytearray()
         raise Exception(f'The encoder {self.__class__.__name__} can only encode None')  
-        return bytearray()
 
 @singleton
 class ByteVec(OneValPart):

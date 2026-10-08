@@ -30,8 +30,6 @@ def gen_global_data(global_type, init: Inst) -> DataPayloadwithName:
     )
 
 
-def gen_mem_from_limit(limit: DataPayloadwithName) -> DataPayloadwithName:
-    return limit
 
 
 def gen_limit1(min_: int) -> DataPayloadwithName:
@@ -51,8 +49,6 @@ def gen_limit(min_, max_: Optional[int] = None):
     return limit_
 
 
-def gen_table_type(elem_type, limit: DataPayloadwithName) -> DataPayloadwithName:
-    return DataPayloadwithName({'et': elem_type, 'lim': limit}, 'tabletype')
 
 
 def  gen_export_funcidx_part(func_idx):
@@ -76,23 +72,13 @@ def gen_export_global_idx_part(global_idx):
     return DataPayloadwithName({'desc': global_idx}, 'global_exportdesc')
 
 
-def rename_export_desc(export_desc, new_name):
-    payload = export_desc.data.copy()
-    payload['name'] = new_name
-    return DataPayloadwithName(payload, 'export')
 
 
 def gen_func_import_attr(type_idx):
     return DataPayloadwithName({'typeidx': type_idx}, 'func_importdesc')
 
-def gen_table_import_attr(table_type):
-    return DataPayloadwithName({'tabletype': table_type}, 'table_importdesc')
 
-def gen_memory_import_attr(memory_type):
-    return DataPayloadwithName({'memtype': memory_type}, 'mem_importdesc')
 
-def gen_global_import_attr(global_type):
-    return DataPayloadwithName({'gt': global_type}, 'global_importdesc')
 
 def gen_import_desc(module_name, entity_name, import_attr) -> DataPayloadwithName:
     return DataPayloadwithName(
@@ -180,23 +166,7 @@ def gen_elem_decl0(funcidxs) -> DataPayloadwithName:
         'declarative_elem_seg0'
     )
 
-def gen_elem_seg4(offset, exprs) -> DataPayloadwithName:
-    return DataPayloadwithName(
-        {
-            'offset': gen_offset_expr_from_int(offset),
-            'exprs': exprs
-        },
-        'active_elem_seg2'
-    )
 # passive
-def gen_elem_passive1(exprs, valtype) -> DataPayloadwithName:
-    return DataPayloadwithName(
-        {
-            'elemkind': valtype,
-            'exprs': exprs
-        },
-        'passive_elem_seg1'
-    )
 
 def gen_elem_seg6(table_idx, offset, exprs, valtype) -> DataPayloadwithName:
     return DataPayloadwithName(
@@ -210,29 +180,6 @@ def gen_elem_seg6(table_idx, offset, exprs, valtype) -> DataPayloadwithName:
     )
 
 # decl
-def gen_elem_decl1(exprs, valtype) -> DataPayloadwithName:
-    return DataPayloadwithName(
-        {
-            'exprs': exprs,
-            'elemkind': valtype
-        },
-        'declarative_elem_seg1'
-    )
 
-def gen_exprs_repr_ref_insts(func_idxs_or_null_list:list[Union[int, None]], ref_type) -> list[Inst]:
-    if ref_type == 'externref':
-        assert all([idx is None for idx in func_idxs_or_null_list])
-    return [InstFactory.gen_binary_info_inst_high_single_imm('ref.func', idx) if idx is not None else InstFactory.gen_binary_info_inst_high_single_imm('ref.null', ref_type) for idx in func_idxs_or_null_list]
 
-def gen_custom_sec(name, data) -> DataPayloadwithName:
-    # ! I  know there will be an Exception, since the process of section_length
-    return DataPayloadwithName(data={
-        'custom': DataPayloadwithName(
-            data={
-                'name': name,
-                'payload': data
-            },
-            name='custom'
-        )
-        }, name='custom_section')
 

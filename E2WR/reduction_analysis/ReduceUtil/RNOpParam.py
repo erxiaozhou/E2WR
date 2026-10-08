@@ -7,7 +7,6 @@ class OnlyOneInstTask(Enum):
     CORE = auto()
     P3 = auto()
     REV = auto()
-    FULL = auto()
     DISABLE = auto()
 
 
@@ -23,4 +22,3 @@ class RNOpParam:
     cur_input_path: Optional[str] = None
     rest_time: Optional[float] = None
     enable_fast_mode: bool = True
-    enable_vp:bool=True

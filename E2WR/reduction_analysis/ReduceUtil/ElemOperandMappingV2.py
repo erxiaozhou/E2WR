@@ -6,7 +6,7 @@ from extract_block_mutator.Context import Context
 from extract_block_mutator.InstUtil.InstReqUtil import get_inst_ty_req
 from reduction_analysis.ReducerCommonConfig import is_debug_env
 
-from .ReduceInsts_V5_util import ElemGroupBase, ImmGroup, MutElemGroup, OneElem, OneNodeType, StackChange, gen_type_for_graph
+from .ReduceInsts_V5_util import OneElem, OneNodeType, StackChange, gen_type_for_graph
 
 
 

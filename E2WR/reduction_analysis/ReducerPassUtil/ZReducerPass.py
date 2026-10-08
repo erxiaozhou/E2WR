@@ -13,7 +13,6 @@ from enum import Enum
 
 class ZReducerType(Enum):
     NODE_SHRINK = 'NodeShrink'
-    PLEV = 'PLEV'
     FINAL_POLISH = 'FinalPolishPass'
     UNUSED_DEF = 'UnusedDefReducer'
 
@@ -65,7 +64,6 @@ class ZReducerPassAndCheck(ReduceAndCheckPass):
                          )->ReduceResult:
         start_time = time.time()
         exec_result = self.reduce_pass.reduce(input_path, output_path, timeout)
-        can_accept = exec_result.is_successful_exec()
         end_time = time.time()
         result = get_reduce_result(
             output_path, 

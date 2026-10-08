@@ -21,21 +21,6 @@ def cal_actual_ig(
     else:
         return fail_gain
     
-def cal_ieg2m(
-    to_cal_elems:set, 
-    cleaned_fail_history:list[set], 
-    p_dict:dict, 
-    func_cal_failed_prob:Callable
-):
-   
-    pass_prob = cal_pass_prob(p_dict, to_cal_elems)
-    p0s = [p_dict[elem] for elem in to_cal_elems]
-    pass_gain = _cal_pass_gain(to_cal_elems, cleaned_fail_history, p_dict, p0s)
-    pass_gain_part = pass_prob * pass_gain
-    # cal the information gain if fail
-    fail_gain = _cal_fail_gain(to_cal_elems, p_dict, func_cal_failed_prob, p0s)
-    fail_gain_part = fail_gain * (1 - pass_prob)
-    return pass_gain_part + fail_gain_part
 
 def _cal_fail_gain(to_cal_elems, p_dict, func_cal_failed_prob, p0s):
     new_d = func_cal_failed_prob(to_cal_elems, p_dict)

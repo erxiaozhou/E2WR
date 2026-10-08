@@ -1,7 +1,21 @@
-from functools import lru_cache
-from .funcType import _add_core2, funcType, FuncTypeCatException, match_func_type
-from .funcTypeFactory import funcTypeFactory
+"""typeReq —— 兼容壳（实际实现见 typeSys2.TR / compose / match）。
+
+2026-09-22 类型系统重建模（B-2）：
+- typeReq = 候选集合 TR 的包装；req_type 四值不再是独立维度，而是候选
+  poly 位的视图（构造时按 req_type 展开 poly，读取时按 poly 反推）；
+- merge_req = typeSys2.merge（笛卡尔积 compose，失败淘汰），
+  旧 special 分支的对象重建逻辑全部消失；
+- check_ftype_match_req = typeSys2.match（req 的 poly 位 = 底部截尾语义；
+  unreachable 型需求 ((),(),T,T) 匹配一切 —— 修复旧实现未定义分支的
+  意外严格行为，与 CP9201 tests/test_check_ftype_match_req.py 的期望一致）；
+- 候选集合显式按值定序（旧 list(set(...)) 顺序不定，ty0 不确定）；
+- _add_core1 的 val1.determined 分支（'eq'+det=True 组合）为旧死路径，
+  不复刻。
+"""
 from enum import Enum
+
+from .funcType import funcType
+from .typeSys2 import FTy, TR, UNREACHABLE, match as _match, merge as _merge
 
 
 class REQRESULT(Enum):
@@ -13,153 +27,91 @@ class REQRESULT(Enum):
         return self == REQRESULT.MATCH
 
 
+_REQ2POLY = {
+    'eq': (False, False),
+    'eg_param_f': (True, False),
+    'eg_param_and_result': (True, True),
+    'unreachable': (True, True),
+}
+
+
+def _poly2req(tr: TR) -> str:
+    """poly 位反推 req_type 视图（仅展示/兼容；判定面等价已验证）。"""
+    if not tr.cands:
+        return 'eq'
+    c = tr.cands[0]
+    if not c.params_poly:
+        return 'eq'
+    if not c.results_poly:
+        return 'eg_param_f'
+    if not c.params and not c.results and c.terminal:
+        return 'unreachable'
+    return 'eg_param_and_result'
+
+
 class typeReq:
-    def __init__(self, tys: list[funcType], req_type='eq'):
-        tys = list(set(tys))
-        self._tys = tys
+    __slots__ = ('_tr',)
 
-        assert req_type in ['eq', 'eg_param_f', 'eg_param_and_result', 'unreachable']
-        self.req_type = req_type
+    def __init__(self, tys, req_type='eq'):
+        assert req_type in _REQ2POLY, req_type
+        if req_type == 'unreachable':
+            self._tr = TR((UNREACHABLE,))
+            return
+        pp, rp = _REQ2POLY[req_type]
+        cands = {FTy(tuple(t.param_types), tuple(t.result_types), pp, rp,
+                     t.determined_return_ty) for t in tys}
+        self._tr = TR(tuple(sorted(cands)))
 
-    @property
-    def tys(self):
-        return self._tys
-
-    @tys.setter
-    def tys(self, value):
-        raise Exception('tys setter is not allowed')
-    
-
-    def impossible(self):
-        return len(self.tys) == 0
-
-    @property
-    def ty0(self):
-        return self.tys[0]
+    @classmethod
+    def _from_tr(cls, tr: TR):
+        obj = cls.__new__(cls)
+        obj._tr = tr
+        return obj
 
     @classmethod
     def from_one_ty(cls, ty: funcType, req_type='eq'):
         return cls([ty], req_type)
 
-    def __eq__(self, __value: object) -> bool:
-        return set(self.tys) == set(__value.tys) and self.req_type == __value.req_type
+    @property
+    def tr(self) -> TR:
+        return self._tr
 
-    def __repr__(self) -> str:
+    @property
+    def tys(self):
+        return [funcType(c.params, c.results, c.terminal) for c in self._tr.cands]
+
+    @property
+    def ty0(self) -> funcType:
+        c = self._tr.cands[0]
+        return funcType(c.params, c.results, c.terminal)
+
+    @property
+    def req_type(self) -> str:
+        return _poly2req(self._tr)
+
+    def impossible(self):
+        return self._tr.impossible()
+
+    def __eq__(self, other):
+        if not isinstance(other, typeReq):
+            return False
+        return self._tr == other._tr
+
+    def __hash__(self):
+        return hash(self._tr)
+
+    def __repr__(self):
         return f'typeReq(tys={self.tys}, req_type={self.req_type})'
 
-def _is_special_req(req_type):
-    return req_type in {'unreachable', 'eg_param_and_result'}
 
-def merge_req(req1, req2):
-    assert req1 is not None and req2 is not None, print(req1, req2)
-    assert isinstance(req1, typeReq)
-    assert isinstance(req2, typeReq)
-    if _is_special_req(req1.req_type) or req2.req_type == 'unreachable':
-    # else:
-        # req1.req_type == 'eq' and req2.req_type == 'eg_param_f':
-        possible_cats = []
-        for self_ty in req1.tys:
-            for value_ty in req2.tys:
-                try:
-                    if self_ty.determined_return_ty or req1.req_type == 'unreachable' :  
-                        value_ty = funcTypeFactory.generate_one_func_type_default(param_type=[], result_type=value_ty.result_types, determined_return_ty=value_ty.determined_return_ty)
-                        # if value_ty.determined_return_ty:
-                            
-                        self_ty = funcTypeFactory.generate_one_func_type_default(param_type=self_ty.param_types, result_type=[], determined_return_ty=True)
-                        # assert 0, 1
-                    # else:
-                    #     self_ty = funcTypeFactory.generate_one_func_type_default(param_type=self_ty.param_types, result_type=self_ty.result_types, determined_return_ty=True)
-                        _add_core2(self_ty, value_ty)
-                    if req2.req_type == 'unreachable':
-                        self_ty = funcTypeFactory.generate_one_func_type_default(param_type=self_ty.param_types, result_type=[])
-                    # possible_cat = self_ty + value_ty
-                    # possible_cat = self_ty + value_ty
-                    possible_cat = _add_core2(self_ty, value_ty, True)
-                    # print('possible_cat', possible_cat)
-                    # print('before ')
-                    # assert 0,4
-                    if req2.req_type == 'unreachable':
-                        possible_cat =funcTypeFactory.generate_one_func_type_default(param_type=self_ty.param_types, result_type=possible_cat.result_types)
-                    possible_cats.append(possible_cat)
-                except FuncTypeCatException as e:
-                    pass
-
-        self_req_type = req1.req_type
-        value_req_type = req2.req_type
-        req_ty = _determine_req_ty(self_req_type, value_req_type)
-        return typeReq(list(set(possible_cats)), req_ty)
-
-    else:
-        # assert 0, 3
-        possible_cats = []
-        for self_ty in req1.tys:
-            for value_ty in req2.tys:
-                try:
-                    possible_cat = self_ty + value_ty
-                    possible_cats.append(possible_cat)
-                    # print(f'possible_cat: {possible_cat}')
-                except FuncTypeCatException as e:
-                    pass
+def merge_req(req1: typeReq, req2: typeReq) -> typeReq:
+    return typeReq._from_tr(_merge(req1.tr, req2.tr))
 
 
-        # determine req_ty
-        self_req_type = req1.req_type
-        value_req_type = req2.req_type
-        req_ty = _determine_req_ty(self_req_type, value_req_type)
-        return typeReq(list(set(possible_cats)), req_ty)
-  
-
-@lru_cache(maxsize=1024)
-def _determine_req_ty(self_req_type, value_req_type):
-    if 'unreachable' == value_req_type:
-        return 'unreachable'
-    if 'unreachable' == self_req_type:
-        
-    # if 'unreachable' in [self_req_type, value_req_type]:
-        return 'eg_param_and_result'
-    if 'eg_param_and_result' in [self_req_type, value_req_type]:
-        req_ty = 'eg_param_and_result'
-    elif 'eg_param_f' in [self_req_type, value_req_type]:
-        req_ty = 'eg_param_f'
-    else:
-        req_ty = 'eq'
-    return req_ty
-
-
-def check_ftype_match_req(fty, req):
+def check_ftype_match_req(fty: funcType, req: typeReq):
     if req is None:
         return REQRESULT.UNKNOWN
-    if len(req.tys) > 1:
-        for ty in req.tys:
-            new_req = typeReq.from_one_ty(ty, req.req_type)
-            # print('new_req', new_req)
-            if check_ftype_match_req(fty, new_req) == REQRESULT.MATCH:
-                return REQRESULT.MATCH
-        return REQRESULT.UNMATCH
-    req_ty = req.ty0
-    if req.req_type == 'eq':
-        if fty == req_ty:
+    for cand in req.tr.cands:
+        if _match(fty.fty, cand) is not None and _match(fty.fty, cand).name == 'MATCH':
             return REQRESULT.MATCH
-        else:
-            return REQRESULT.UNMATCH
-    if req.req_type in ['eg_param_f', 'eg_param_and_result']:
-        if len(req_ty.param_types) > len(fty.param_types):
-            return REQRESULT.UNMATCH
-        new_fty_param = fty.param_types[len(fty.param_types)-len(
-            req_ty.param_types):len(fty.param_types)]
-    else:
-        new_fty_param = fty.param_types
-    if req.req_type == 'eg_param_and_result':
-        if len(req_ty.result_types) > len(fty.result_types):
-            return REQRESULT.UNMATCH
-        new_fty_result = fty.result_types[len(fty.result_types)-len(
-            req_ty.result_types):len(fty.result_types)]
-    else:
-        new_fty_result = fty.result_types
-    new_fty = funcTypeFactory.generate_one_func_type_default(param_type=new_fty_param,
-                       result_type=new_fty_result)
-    # print('new_req_type', new_fty)
-    if match_func_type(new_fty, req_ty):
-        return REQRESULT.MATCH
-    else:
-        return REQRESULT.UNMATCH
+    return REQRESULT.UNMATCH
